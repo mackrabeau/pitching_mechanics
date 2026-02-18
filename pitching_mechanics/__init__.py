@@ -1,6 +1,8 @@
-"""Pitching mechanics tools (OBP/Driveline processed data + MuJoCo pipelines).
+"""Pitching mechanics — OBP landmark tracking + MuJoCo simulation.
 
-Plan B lives here first: load OBP processed pitching tables, map to MuJoCo, replay
-reference trajectories, and export canonical reset states for RL (Plan A).
+Modules:
+  obp_fullsig            Load OBP full-signal landmark data.
+  site_ik                Site-based damped least-squares IK solver.
+  build_pitcher_fullbody Generate a full-body pitcher MJCF from OBP landmarks.
+  replay_pitcher_fullbody Replay a pitch delivery in MuJoCo (kinematic or physics-tracked).
 """
-

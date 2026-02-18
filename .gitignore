@@ -1,5 +1,5 @@
 # local env
-.venv/ 
+.venv/
 
 # repos i want to keep locally, not commit
 mujoco/
