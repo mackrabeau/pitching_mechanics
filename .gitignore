@@ -1,0 +1,11 @@
+# local env
+.venv/ 
+
+# repos i want to keep locally, not commit
+mujoco/
+openbiomechanics/
+
+# python cruft
+__pycache__/
+**/__pycache__/
+*.pyc
