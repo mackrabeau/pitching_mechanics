@@ -6,11 +6,13 @@ Physics-based pitch delivery replay and torque analysis using [Driveline OpenBio
 
 This project loads motion-capture joint-center landmarks from the OBP baseball pitching dataset, builds a pitcher-specific MuJoCo model scaled to the athlete's actual segment lengths, and replays the full delivery (foot plant → ball release → follow-through) as a kinematic playback with inverse-dynamics torque computation.
 
-The goal is to produce a reference torque baseline that serves as the foundation for reinforcement-learning-based pitch optimization (see `plans/rl_plan.txt`).
+The goal is to produce a reference torque baseline that serves as the foundation for reinforcement-learning-based pitch optimization (see `TO_DO.txt`).
 
 ## Project Structure
 
 ```
+mujoco/                          # https://github.com/google-deepmind/mujoco
+openbiomechanics/                # https://github.com/drivelineresearch/openbiomechanics
 pitching_mechanics/
 ├── __init__.py
 ├── obp_fullsig.py               # Load OBP full-signal landmarks + events
@@ -21,8 +23,7 @@ pitching_mechanics/
 │   └── pitcher_fullbody_*.xml    # Generated per-pitch MJCF models
 └── logs/
     └── torques_*.csv             # Inverse-dynamics torque logs
-plans/
-└── rl_plan.txt                   # RL roadmap and current status
+TO_DO.txt                         # RL roadmap and current status
 ```
 
 ## How It Works
@@ -96,7 +97,7 @@ Joint-center landmarks and event timestamps come from the [Driveline OpenBiomech
 
 ## RL Roadmap
 
-See `plans/rl_plan.txt` for the full roadmap. Current status:
+See `TO_DO.txt` for the full roadmap. Current status:
 
 | Step | Description | Status |
 |------|-------------|--------|
