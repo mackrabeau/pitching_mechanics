@@ -18,7 +18,8 @@ pitching_mechanics/
 ├── obp_fullsig.py               # Load OBP full-signal landmarks + events
 ├── site_ik.py                    # Damped least-squares IK solver (mj_jacSite)
 ├── build_pitcher_fullbody.py     # Generate full-body MJCF from OBP landmarks
-├── replay_pitcher_fullbody.py    # Replay + inverse-dynamics torque computation
+├── replay_pitcher_fullbody.py    # Replay + inverse dynamics + ball release
+├── ball_flight.py               # Ball release speed, strike check, RL reward
 ├── models/
 │   └── pitcher_fullbody_*.xml    # Generated per-pitch MJCF models
 └── logs/
@@ -43,10 +44,16 @@ TO_DO.txt                         # RL roadmap and current status
    - Pre-computes IK trajectory for the full replay window (440 frames at 1 kHz)
    - Smooths the trajectory, then derives qvel/qacc via finite differences
    - Runs `mj_inverse` at each frame to compute the exact joint torques needed to produce the observed motion
+   - Computes ball release speed and strike-zone feasibility at BR_time
    - Plays back the trajectory in the MuJoCo viewer (kinematic — positions set directly)
    - Writes a torque CSV log when `--log-torques` is specified
 
-4. **IK Solver** (`site_ik.py`): Damped least-squares solver using `mj_jacSite` — tracks 10 joint-center sites (hands, elbows, shoulders, knees, ankles for both sides) while regularizing toward a neutral pose.
+4. **Ball Release & Strike Check** (`ball_flight.py`):
+   - Estimates ball speed from hand jc speed × 1.5 wrist/finger ratio (validated: 87.0 mph estimated vs 85.3 mph actual, 2% error)
+   - Checks release feasibility: height (1.0–2.2m) and forward direction (≥80% of speed toward plate)
+   - Computes a scalar RL reward: `speed_mph + 10 × strike_quality`
+
+5. **IK Solver** (`site_ik.py`): Damped least-squares solver using `mj_jacSite` — tracks 10 joint-center sites (hands, elbows, shoulders, knees, ankles for both sides) while regularizing toward a neutral pose.
 
 ## Quick Start
 
@@ -77,7 +84,7 @@ mjpython -m pitching_mechanics.replay_pitcher_fullbody \
   --log-torques pitching_mechanics/logs/torques_1623_3.csv
 ```
 
-The replay window defaults to `fp_10_time` → `MIR_time + 0.25s` (~0.44s of the delivery). Torque summary is printed to the console and a per-frame CSV is saved.
+The replay window defaults to `fp_10_time` → `MIR_time + 0.25s` (~0.44s of the delivery). Torque summary, ball release speed, and strike check are printed to the console. A per-frame torque CSV is saved.
 
 ### 3. Replay only (no torque computation)
 
@@ -101,8 +108,8 @@ See `TO_DO.txt` for the full roadmap. Current status:
 
 | Step | Description | Status |
 |------|-------------|--------|
-| 1 | Inverse-dynamics torque baseline | ✅ Done |
-| 2 | Ball model + release velocity | Next |
-| 3 | Gym environment wrapper | Planned |
+| 1 | Inverse-dynamics torque baseline | Done |
+| 2 | Ball release + strike zone | Done |
+| 3 | Gym environment wrapper | Next |
 | 4 | PPO training loop | Planned |
 | 5 | Polish (wider window, contacts) | Planned |

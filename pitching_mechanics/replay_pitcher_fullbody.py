@@ -1,10 +1,13 @@
-"""Replay a full-body OBP pitch in MuJoCo (kinematic or physics-tracked).
+"""Replay a full-body OBP pitch in MuJoCo with ball release & strike check.
 
 The pelvis root (freejoint) is set directly from the OBP hip landmarks.
 All limb joints are solved via site-based IK each timestep.
 
-Physics-tracked mode uses position actuators and logs joint torques
-to a CSV file for later analysis / RL baseline.
+After computing the IK trajectory, this script:
+  1. Computes inverse-dynamics joint torques (optional, --log-torques)
+  2. Computes ball release velocity from the hand trajectory at BR_time
+  3. Checks whether the ball would cross home plate in the strike zone
+  4. Plays back the motion in the MuJoCo viewer
 """
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ from pathlib import Path
 import numpy as np
 
 from pitching_mechanics.obp_fullsig import load_pitch
+from pitching_mechanics.ball_flight import compute_release, check_strike, compute_reward
 from pitching_mechanics.site_ik import TrackedSite, solve_site_ik
 
 
@@ -271,6 +275,25 @@ def main() -> int:
             col = torque_arr[:, i]
             print(f"  {name:<28s} {np.mean(np.abs(col)):8.1f} {np.max(np.abs(col)):8.1f}")
         print()
+
+    # ── Ball release & strike zone ────────────────────────────────────────
+    t_br = float(pitch.events["BR_time"])
+    release = compute_release(pitch.hand_jc, pitch.shoulder_jc, t_ref, t_br)
+    strike = check_strike(release)
+    rl_reward = compute_reward(release, strike)
+
+    print("  ── Ball release ──")
+    print(f"  Release pos:     x={release.pos[0]:.3f}  y={release.pos[1]:.3f}  z={release.pos[2]:.3f} m")
+    print(f"  Hand jc vel:     vx={release.hand_jc_vel[0]:.1f}  vy={release.hand_jc_vel[1]:.1f}  vz={release.hand_jc_vel[2]:.1f} m/s")
+    print(f"  Hand jc speed:   {release.hand_jc_speed:.1f} m/s  ({release.hand_jc_speed * 2.23694:.1f} mph)")
+    print(f"  Est ball speed:  {release.est_ball_speed_ms:.1f} m/s  ({release.est_ball_speed_mph:.1f} mph)")
+    print(f"  Forward frac:    {release.forward_frac:.1%} of speed toward plate")
+    print(f"  Strike check:    {'STRIKE ✓' if strike.is_plausible_strike else 'BALL ✗'}"
+          f"  (height={'OK' if strike.release_height_ok else 'BAD'}"
+          f"  dir={'OK' if strike.direction_ok else 'BAD'}"
+          f"  quality={strike.quality:.2f})")
+    print(f"  RL reward:       {rl_reward:.1f}")
+    print()
 
     # ── Viewer loop (always kinematic — IK qpos is pre-computed) ──────────
     data.qpos[:] = qpos_traj[0]

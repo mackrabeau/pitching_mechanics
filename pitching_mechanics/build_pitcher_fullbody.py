@@ -114,6 +114,10 @@ def build_xml(
             <body name="throw_hand" pos="{throw_fore_len:.6f} 0 0">
               <site name="throw_hand_site" pos="0 0 0"/>
               <geom name="throw_hand_geom" type="sphere" size="0.04" rgba="0.95 0.85 0.2 1"/>
+              <!-- Baseball (visual, attached to hand) -->
+              <geom name="ball_geom" type="sphere" size="0.0365" pos="0.05 0 0"
+                    rgba="1.0 1.0 1.0 1" mass="0.145" contype="0" conaffinity="0"/>
+              <site name="ball_site" pos="0.05 0 0"/>
             </body>
           </body>
         </body>
