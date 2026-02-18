@@ -1,7 +1,7 @@
 # local env
 .venv/
 
-# repos i want to keep locally, not commit
+# repos to keep locally, not commit
 mujoco/
 openbiomechanics/
 
@@ -9,3 +9,6 @@ openbiomechanics/
 __pycache__/
 **/__pycache__/
 *.pyc
+
+# logs for mujoco
+MUJOCO_LOG.TXT

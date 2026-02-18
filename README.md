@@ -1,12 +1,12 @@
 # pitching_mechanics
 
-Physics-tracked pitch delivery replay using [Driveline OpenBiomechanics Project (OBP)](https://github.com/drivelinebaseball/openbiomechanics) landmark data and [MuJoCo](https://mujoco.org/).
+Physics-based pitch delivery replay and torque analysis using [Driveline OpenBiomechanics Project (OBP)](https://github.com/drivelinebaseball/openbiomechanics) landmark data and [MuJoCo](https://mujoco.org/).
 
 ## Overview
 
-This project loads motion-capture joint-center landmarks from the OBP baseball pitching dataset, builds a pitcher-specific MuJoCo model scaled to the athlete's actual segment lengths, and replays the full delivery (foot plant → ball release → follow-through) as either a kinematic playback or a physics-tracked simulation with position actuators.
+This project loads motion-capture joint-center landmarks from the OBP baseball pitching dataset, builds a pitcher-specific MuJoCo model scaled to the athlete's actual segment lengths, and replays the full delivery (foot plant → ball release → follow-through) as a kinematic playback with inverse-dynamics torque computation.
 
-The goal is to produce a meaningful force/torque baseline that can later serve as the foundation for reinforcement-learning-based pitch optimization (Plan A).
+The goal is to produce a reference torque baseline that serves as the foundation for reinforcement-learning-based pitch optimization (see `plans/rl_plan.txt`).
 
 ## Project Structure
 
@@ -16,9 +16,13 @@ pitching_mechanics/
 ├── obp_fullsig.py               # Load OBP full-signal landmarks + events
 ├── site_ik.py                    # Damped least-squares IK solver (mj_jacSite)
 ├── build_pitcher_fullbody.py     # Generate full-body MJCF from OBP landmarks
-├── replay_pitcher_fullbody.py    # Full-body replay (kinematic or physics-tracked)
-└── models/
-    └── pitcher_fullbody_*.xml    # Generated per-pitch MJCF models
+├── replay_pitcher_fullbody.py    # Replay + inverse-dynamics torque computation
+├── models/
+│   └── pitcher_fullbody_*.xml    # Generated per-pitch MJCF models
+└── logs/
+    └── torques_*.csv             # Inverse-dynamics torque logs
+plans/
+└── rl_plan.txt                   # RL roadmap and current status
 ```
 
 ## How It Works
@@ -32,12 +36,16 @@ pitching_mechanics/
    - Glove arm (3 DOF shoulder + 1 DOF elbow)
    - Rear leg (3 DOF hip + 1 DOF knee + 1 DOF ankle)
    - Lead leg (3 DOF hip + 1 DOF knee + 1 DOF ankle)
+   - **21 hinge DOFs total**, position actuators on every joint
 
-3. **Replay** (`replay_pitcher_fullbody.py`): For each simulation timestep:
-   - Sets the pelvis position and orientation from OBP hip landmarks.
-   - Solves site-based IK (`site_ik.py`) over 21 hinge DOFs to match 10 tracked joint centers (elbows, hands, shoulders, knees, ankles).
-   - In **kinematic** mode: sets `qpos` directly (validates geometry).
-   - In **physics** mode: feeds IK joint angles to position actuators and steps the simulation (produces forces/torques).
+3. **Replay + Inverse Dynamics** (`replay_pitcher_fullbody.py`):
+   - Pre-computes IK trajectory for the full replay window (440 frames at 1 kHz)
+   - Smooths the trajectory, then derives qvel/qacc via finite differences
+   - Runs `mj_inverse` at each frame to compute the exact joint torques needed to produce the observed motion
+   - Plays back the trajectory in the MuJoCo viewer (kinematic — positions set directly)
+   - Writes a torque CSV log when `--log-torques` is specified
+
+4. **IK Solver** (`site_ik.py`): Damped least-squares solver using `mj_jacSite` — tracks 10 joint-center sites (hands, elbows, shoulders, knees, ankles for both sides) while regularizing toward a neutral pose.
 
 ## Quick Start
 
@@ -59,20 +67,23 @@ python -m pitching_mechanics.build_pitcher_fullbody \
   --root . --session-pitch 1623_3 --event fp_10_time
 ```
 
-### 2. Replay (kinematic)
+### 2. Replay with torque logging
 
 ```bash
 mjpython -m pitching_mechanics.replay_pitcher_fullbody \
   --root . --session-pitch 1623_3 \
-  --kinematic --realtime --loop --sleep-mult 3.0
+  --realtime --loop --sleep-mult 3.0 \
+  --log-torques pitching_mechanics/logs/torques_1623_3.csv
 ```
 
-### 3. Replay (physics-tracked)
+The replay window defaults to `fp_10_time` → `MIR_time + 0.25s` (~0.44s of the delivery). Torque summary is printed to the console and a per-frame CSV is saved.
+
+### 3. Replay only (no torque computation)
 
 ```bash
 mjpython -m pitching_mechanics.replay_pitcher_fullbody \
   --root . --session-pitch 1623_3 \
-  --realtime --loop --sleep-mult 2.0
+  --realtime --loop --sleep-mult 3.0
 ```
 
 ## Pitch Selection
@@ -82,3 +93,15 @@ The default pitch (`1623_3`) was chosen as a median-velocity, right-handed, coll
 ## Data Source
 
 Joint-center landmarks and event timestamps come from the [Driveline OpenBiomechanics Project](https://github.com/drivelinebaseball/openbiomechanics) (`openbiomechanics/baseball_pitching/data/full_sig/`). The OBP global coordinate system is X = toward home plate, Y = pitcher's left, Z = up — which matches MuJoCo's default world frame, so no coordinate rotation is needed.
+
+## RL Roadmap
+
+See `plans/rl_plan.txt` for the full roadmap. Current status:
+
+| Step | Description | Status |
+|------|-------------|--------|
+| 1 | Inverse-dynamics torque baseline | ✅ Done |
+| 2 | Ball model + release velocity | Next |
+| 3 | Gym environment wrapper | Planned |
+| 4 | PPO training loop | Planned |
+| 5 | Polish (wider window, contacts) | Planned |

@@ -1,11 +1,11 @@
 <mujoco model="PitcherFullBody">
   <compiler angle="radian"/>
-  <option timestep="0.005" gravity="0 0 -9.81" integrator="RK4"/>
+  <option timestep="0.001" gravity="0 0 -9.81" integrator="Euler"/>
 
   <default>
-    <joint type="hinge" damping="2.0" limited="true"/>
+    <joint type="hinge" damping="5.0" limited="true"/>
     <position kp="80" kv="8"/>
-    <geom type="capsule" density="900"/>
+    <geom type="capsule" density="500"/>
     <site size="0.018" rgba="0 0.8 0.8 1"/>
   </default>
 
@@ -112,31 +112,31 @@
   </worldbody>
 
   <actuator>
-    <!-- trunk -->
-    <position name="trunk_yaw"   joint="trunk_yaw"   kp="120" kv="12"/>
-    <position name="trunk_pitch" joint="trunk_pitch" kp="120" kv="12"/>
-    <position name="trunk_roll"  joint="trunk_roll"  kp="120" kv="12"/>
-    <!-- throw arm -->
-    <position name="throw_shoulder_yaw"   joint="throw_shoulder_yaw"   kp="60" kv="6"/>
-    <position name="throw_shoulder_pitch" joint="throw_shoulder_pitch" kp="60" kv="6"/>
-    <position name="throw_shoulder_roll"  joint="throw_shoulder_roll"  kp="60" kv="6"/>
-    <position name="throw_elbow_flex"     joint="throw_elbow_flex"     kp="80" kv="8"/>
+    <!-- trunk (heavy body, high gains) -->
+    <position name="trunk_yaw"   joint="trunk_yaw"   kp="500" kv="50"/>
+    <position name="trunk_pitch" joint="trunk_pitch" kp="500" kv="50"/>
+    <position name="trunk_roll"  joint="trunk_roll"  kp="500" kv="50"/>
+    <!-- throw arm (fast movements, needs stiff tracking) -->
+    <position name="throw_shoulder_yaw"   joint="throw_shoulder_yaw"   kp="300" kv="30"/>
+    <position name="throw_shoulder_pitch" joint="throw_shoulder_pitch" kp="300" kv="30"/>
+    <position name="throw_shoulder_roll"  joint="throw_shoulder_roll"  kp="300" kv="30"/>
+    <position name="throw_elbow_flex"     joint="throw_elbow_flex"     kp="300" kv="30"/>
     <!-- glove arm -->
-    <position name="glove_shoulder_yaw"   joint="glove_shoulder_yaw"   kp="60" kv="6"/>
-    <position name="glove_shoulder_pitch" joint="glove_shoulder_pitch" kp="60" kv="6"/>
-    <position name="glove_shoulder_roll"  joint="glove_shoulder_roll"  kp="60" kv="6"/>
-    <position name="glove_elbow_flex"     joint="glove_elbow_flex"     kp="80" kv="8"/>
-    <!-- rear leg -->
-    <position name="rear_hip_yaw"    joint="rear_hip_yaw"    kp="100" kv="10"/>
-    <position name="rear_hip_pitch"  joint="rear_hip_pitch"  kp="100" kv="10"/>
-    <position name="rear_hip_roll"   joint="rear_hip_roll"   kp="100" kv="10"/>
-    <position name="rear_knee_flex"  joint="rear_knee_flex"  kp="120" kv="12"/>
-    <position name="rear_ankle_flex" joint="rear_ankle_flex" kp="60"  kv="6"/>
-    <!-- lead leg -->
-    <position name="lead_hip_yaw"    joint="lead_hip_yaw"    kp="100" kv="10"/>
-    <position name="lead_hip_pitch"  joint="lead_hip_pitch"  kp="100" kv="10"/>
-    <position name="lead_hip_roll"   joint="lead_hip_roll"   kp="100" kv="10"/>
-    <position name="lead_knee_flex"  joint="lead_knee_flex"  kp="120" kv="12"/>
-    <position name="lead_ankle_flex" joint="lead_ankle_flex" kp="60"  kv="6"/>
+    <position name="glove_shoulder_yaw"   joint="glove_shoulder_yaw"   kp="200" kv="20"/>
+    <position name="glove_shoulder_pitch" joint="glove_shoulder_pitch" kp="200" kv="20"/>
+    <position name="glove_shoulder_roll"  joint="glove_shoulder_roll"  kp="200" kv="20"/>
+    <position name="glove_elbow_flex"     joint="glove_elbow_flex"     kp="200" kv="20"/>
+    <!-- rear leg (push-off, high force) -->
+    <position name="rear_hip_yaw"    joint="rear_hip_yaw"    kp="400" kv="40"/>
+    <position name="rear_hip_pitch"  joint="rear_hip_pitch"  kp="400" kv="40"/>
+    <position name="rear_hip_roll"   joint="rear_hip_roll"   kp="400" kv="40"/>
+    <position name="rear_knee_flex"  joint="rear_knee_flex"  kp="400" kv="40"/>
+    <position name="rear_ankle_flex" joint="rear_ankle_flex" kp="200" kv="20"/>
+    <!-- lead leg (landing, high force) -->
+    <position name="lead_hip_yaw"    joint="lead_hip_yaw"    kp="400" kv="40"/>
+    <position name="lead_hip_pitch"  joint="lead_hip_pitch"  kp="400" kv="40"/>
+    <position name="lead_hip_roll"   joint="lead_hip_roll"   kp="400" kv="40"/>
+    <position name="lead_knee_flex"  joint="lead_knee_flex"  kp="400" kv="40"/>
+    <position name="lead_ankle_flex" joint="lead_ankle_flex" kp="200" kv="20"/>
   </actuator>
 </mujoco>

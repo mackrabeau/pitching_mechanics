@@ -1,0 +1,47 @@
+RL Roadmap – current status
+═══════════════════════════
+
+Step 1 ✅ DONE – Physics-tracked torque baseline via inverse dynamics
+─────────────────────────────────────────────────────────────────────
+Forward simulation with position actuators was unstable (freejoint root
+blows up even with pinning). Switched to MuJoCo's mj_inverse:
+
+  1. Pre-compute full IK trajectory (qpos at 1 kHz, 440 frames)
+  2. Smooth trajectory + finite-diff → qvel, qacc
+  3. mj_inverse gives exact joint torques for each timestep
+
+Result: pitching_mechanics/logs/torques_1623_3.csv (440 rows × 21 joints)
+  – Throwing arm: shoulder ~50-1200 Nm peak, elbow ~190 Nm peak
+  – Hips/legs: up to ~9700 Nm peak (high because model density ≠ human)
+  – Tracking error: hand <4.2 cm, elbow <4.4 cm
+
+The torque profile is the reference baseline the RL agent will try to beat.
+
+Step 2 – Ball model + release velocity  ← NEXT
+──────────────────────────────────────────
+Add a small sphere (the ball) welded to throw_hand until BR_time,
+then detach (disable the weld). The ball's velocity at release is
+the primary reward signal.
+
+Step 3 – Gym environment wrapper
+────────────────────────────────
+Wrap the simulation as a gymnasium.Env:
+  Observation:  joint angles, velocities, time-in-delivery, ball pos
+  Action:       joint torque deltas on top of the reference trajectory
+  Reward:       + release velocity, − energy cost (Σ τ²·dt), − joint penalties
+  Episode:      reset to fp_10_time pose → simulate → done at MIR_time
+  Reset:        restore OBP state at fp_10_time
+
+Design choice: residual policy learning — the RL agent perturbs the
+reference trajectory (not starting from scratch). Converges faster.
+
+Step 4 – RL training
+────────────────────
+Algorithm: PPO (Stable Baselines3)
+Warmstart: optional behavior cloning on reference trajectory
+Constraints: penalize supraphysiological joint angles/torques
+
+Step 5 – Polish (wider window, contact model, etc.)
+────────────────────────────────────────────────────
+Extend replay window to pkh_time, add foot–ground contact, refine
+model mass distribution to match real anthropometrics.
