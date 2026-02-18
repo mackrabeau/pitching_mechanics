@@ -17,21 +17,53 @@ Step 2 DONE – Ball release + strike zone
 
 Step 3 – Gym environment wrapper  ← NEXT
 ─────────────────────────────────────────
-Wrap the simulation as a gymnasium.Env:
-  Observation:  joint angles, velocities, time-in-delivery
-  Action:       joint torque deltas on top of the reference trajectory
-  Reward:       compute_reward(release, strike)  (speed + strike bonus)
-  Episode:      reset to fp_10_time pose → simulate → done at MIR_time
-  Reset:        restore OBP reference state
-  Design:       residual policy learning (perturb the reference, don't start from scratch)
+  Observation space:
+    - Joint angles (21 hinge DOFs)
+    - Joint angular velocities (21)
+    - Hand 3D position + velocity (6)
+    - Time-in-delivery (1 scalar, normalized 0→1)
+  Action space:
+    - Continuous torque deltas applied on top of reference trajectory
+    - One per actuated joint (21 dims)
+    - Clipped to actuator limits from MJCF
+  Reset:
+    - Restore to reference IK pose at fp_10_time
+    - Zero all velocities
+    - Ball attached to hand
+  Episode termination:
+    - Normal: reached MIR_time (end of follow-through)
+    - Early: joint angle exceeds anatomical limit
+    - Early: simulation instability (NaN, divergence)
+    - Early: max timestep exceeded
+  Reward:
+    - At release: compute_reward(release, strike)
+    - Per-step: −energy penalty (Σ torque² × dt)
+    - Per-step: −joint limit proximity penalty
+  Design: residual policy learning (agent perturbs the reference,
+    not learning from scratch)
 
 Step 4 – RL training
 ────────────────────
-Algorithm: PPO (Stable Baselines3)
-Warmstart: optional behavior cloning on reference trajectory
-Constraints: penalize supraphysiological joint angles/torques
+  Algorithm: PPO (Stable Baselines3)
+  Training: ≥1M timesteps, parallel envs for throughput
+  Warmstart: optional behavior cloning on reference trajectory
+  Curriculum:
+    - Phase 1: reduced joint set (elbow only) to stabilize early learning
+    - Phase 2: add shoulder DOFs
+    - Phase 3: full chain (torso + legs)
+  Logging: reward per episode, ball velocity, peak joint torques,
+    energy expenditure
+  Checkpoints: save policy every N episodes for evaluation
 
-Step 5 – Polish
+Step 5 – Evaluation & visualization
+────────────────────────────────────
+  - Replay trained policy in MuJoCo viewer
+  - Per-episode metrics: release velocity, release angle, peak
+    joint torques, mechanical energy
+  - Compare learned mechanics vs reference (OBP baseline)
+
+Step 6 – Polish
 ────────────────
-Wider replay window, foot–ground contact model, refined anthropometrics,
-air drag on ball, wrist DOF for more accurate release direction.
+  Wider replay window (wind-up), foot–ground contact model,
+  refined anthropometrics (real mass distribution), air drag on ball,
+  wrist DOF for more accurate release direction.
