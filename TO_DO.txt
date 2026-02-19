@@ -15,35 +15,36 @@ Step 2 DONE – Ball release + strike zone
   - RL reward = speed_mph + 10 × strike_quality
   - Ball geom added to MJCF model (white sphere on throw_hand)
 
-Step 3 – Gym environment wrapper  ← NEXT
-─────────────────────────────────────────
-  Observation space:
+Step 3 DONE – Gym environment wrapper
+──────────────────────────────────────
+  Files: pitch_env.py, trajectory.py (shared IK precomputation)
+  Design: residual policy learning — agent outputs small joint-angle
+    offsets added to the pre-computed reference IK trajectory.
+  Observation space (49-d float32):
     - Joint angles (21 hinge DOFs)
     - Joint angular velocities (21)
     - Hand 3D position + velocity (6)
     - Time-in-delivery (1 scalar, normalized 0→1)
-  Action space:
-    - Continuous torque deltas applied on top of reference trajectory
-    - One per actuated joint (21 dims)
-    - Clipped to actuator limits from MJCF
-  Reset:
-    - Restore to reference IK pose at fp_10_time
-    - Zero all velocities
-    - Ball attached to hand
-  Episode termination:
-    - Normal: reached MIR_time (end of follow-through)
-    - Early: joint angle exceeds anatomical limit
-    - Early: simulation instability (NaN, divergence)
-    - Early: max timestep exceeded
+  Action space (21-d float32):
+    - Position offsets in [-1, 1], scaled by action_scale (default ±0.15 rad)
+    - One per hinge joint, added to reference IK target each timestep
+  Physics:
+    - Pelvis root driven by mocap body + weld equality (stable kinematic root)
+    - Implicit integrator for numerical stability with stiff actuators
+    - Position actuators track reference + agent offset
+    - 1 kHz physics, 440 steps per episode (0.44s)
   Reward:
-    - At release: compute_reward(release, strike)
-    - Per-step: −energy penalty (Σ torque² × dt)
-    - Per-step: −joint limit proximity penalty
-  Design: residual policy learning (agent perturbs the reference,
-    not learning from scratch)
+    - At BR_time: ball_speed_mph + 10 × strike_quality (via ball_flight.py)
+    - Per-step: −w_energy × Σctrl² × dt
+    - Per-step: −w_limit × joint-limit proximity penalty (clamped)
+  Termination:
+    - Truncated: end of replay window (MIR + 0.25s)
+    - Terminated: NaN / joints > ±10 rad → −20 penalty
+  Verified: gymnasium + SB3 env_checker pass, PPO trains successfully
+  Zero-action baseline reward: ~38 (reference tracking only)
 
-Step 4 – RL training
-────────────────────
+Step 4 – RL training  ← NEXT
+──────────────────────────
   Algorithm: PPO (Stable Baselines3)
   Training: ≥1M timesteps, parallel envs for throughput
   Warmstart: optional behavior cloning on reference trajectory

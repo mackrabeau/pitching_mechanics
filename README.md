@@ -4,9 +4,9 @@ Physics-based pitch delivery replay and torque analysis using [Driveline OpenBio
 
 ## Overview
 
-This project loads motion-capture joint-center landmarks from the OBP baseball pitching dataset, builds a pitcher-specific MuJoCo model scaled to the athlete's actual segment lengths, and replays the full delivery (foot plant → ball release → follow-through) as a kinematic playback with inverse-dynamics torque computation.
+This project loads motion-capture joint-center landmarks from the OBP baseball pitching dataset, builds a pitcher-specific MuJoCo model scaled to the athlete's actual segment lengths, and replays the full delivery (foot plant → ball release → follow-through) as a kinematic playback with inverse-dynamics torque computation. It includes a Gymnasium RL environment where an agent can learn to modify pitching mechanics to throw harder while maintaining strike accuracy.
 
-The goal is to produce a reference torque baseline that serves as the foundation for reinforcement-learning-based pitch optimization (see `TO_DO.txt`).
+The goal is to produce a physics-based pitch optimization loop: reference motion → torque baseline → RL training → improved mechanics (see `TO_DO.txt`).
 
 ## Project Structure
 
@@ -17,9 +17,11 @@ pitching_mechanics/
 ├── __init__.py
 ├── obp_fullsig.py               # Load OBP full-signal landmarks + events
 ├── site_ik.py                    # Damped least-squares IK solver (mj_jacSite)
+├── trajectory.py                # Shared IK trajectory pre-computation
 ├── build_pitcher_fullbody.py     # Generate full-body MJCF from OBP landmarks
 ├── replay_pitcher_fullbody.py    # Replay + inverse dynamics + ball release
 ├── ball_flight.py               # Ball release speed, strike check, RL reward
+├── pitch_env.py                 # Gymnasium RL environment (residual policy)
 ├── models/
 │   └── pitcher_fullbody_*.xml    # Generated per-pitch MJCF models
 └── logs/
@@ -55,6 +57,10 @@ TO_DO.txt                         # RL roadmap and current status
 
 5. **IK Solver** (`site_ik.py`): Damped least-squares solver using `mj_jacSite` — tracks 10 joint-center sites (hands, elbows, shoulders, knees, ankles for both sides) while regularizing toward a neutral pose.
 
+6. **RL Environment** (`pitch_env.py`): Gymnasium-compatible environment for residual policy learning. The agent outputs small joint-angle offsets (±0.15 rad) added to the reference IK trajectory. Physics runs forward with MuJoCo (implicit integrator, mocap-welded pelvis for stable root tracking). Reward is ball release speed (mph) + strike quality bonus − energy penalty. Passes both `gymnasium` and `stable-baselines3` env checkers.
+
+7. **Shared Trajectory** (`trajectory.py`): Pre-computes the IK reference trajectory (smoothing, finite-difference velocities/accelerations) used by both the replay script and the RL environment, avoiding code duplication.
+
 ## Quick Start
 
 ### Prerequisites
@@ -65,7 +71,7 @@ TO_DO.txt                         # RL roadmap and current status
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install mujoco numpy
+pip install mujoco numpy gymnasium stable-baselines3
 ```
 
 ### 1. Build the model
@@ -94,6 +100,23 @@ mjpython -m pitching_mechanics.replay_pitcher_fullbody \
   --realtime --loop --sleep-mult 3.0
 ```
 
+### 4. Run RL environment smoke test
+
+```bash
+python -m pitching_mechanics.pitch_env --root . --session-pitch 1623_3 --episodes 3
+```
+
+### 5. Train with PPO (quick test)
+
+```python
+from stable_baselines3 import PPO
+from pitching_mechanics.pitch_env import PitchEnv
+
+env = PitchEnv(root=".", session_pitch="1623_3")
+model = PPO("MlpPolicy", env, verbose=1, n_steps=440)
+model.learn(total_timesteps=50_000)
+```
+
 ## Pitch Selection
 
 The default pitch (`1623_3`) was chosen as a median-velocity, right-handed, college-level pitcher from the OBP dataset. To use a different pitch, pass a different `--session-pitch` value (format: `<session>_<pitch_number>`, found in `openbiomechanics/baseball_pitching/data/metadata.csv`).
@@ -110,6 +133,7 @@ See `TO_DO.txt` for the full roadmap. Current status:
 |------|-------------|--------|
 | 1 | Inverse-dynamics torque baseline | Done |
 | 2 | Ball release + strike zone | Done |
-| 3 | Gym environment wrapper | Next |
-| 4 | PPO training loop | Planned |
-| 5 | Polish (wider window, contacts) | Planned |
+| 3 | Gym environment wrapper | Done |
+| 4 | PPO training loop | Next |
+| 5 | Evaluation & visualization | Planned |
+| 6 | Polish (wider window, contacts) | Planned |

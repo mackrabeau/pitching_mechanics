@@ -13,6 +13,11 @@
     <light pos="1 0 3" dir="0 0 -1" directional="true"/>
     <geom name="floor" type="plane" size="5 5 0.1" rgba="0.25 0.3 0.35 1" condim="3"/>
 
+    <!-- Mocap target for pelvis (kinematic root, invisible) -->
+    <body name="pelvis_target" mocap="true" pos="0 0 1">
+      <geom type="sphere" size="0.001" contype="0" conaffinity="0" rgba="0 0 0 0"/>
+    </body>
+
     <body name="pelvis" pos="0 0 1">
       <freejoint name="root"/>
       <site name="pelvis_site" pos="0 0 0"/>
@@ -143,4 +148,10 @@
     <position name="lead_knee_flex"  joint="lead_knee_flex"  kp="400" kv="40"/>
     <position name="lead_ankle_flex" joint="lead_ankle_flex" kp="200" kv="20"/>
   </actuator>
+
+  <equality>
+    <!-- Weld pelvis to mocap target — very stiff spring for RL root tracking -->
+    <weld body1="pelvis_target" body2="pelvis"
+          solref="0.01 1" solimp="0.95 0.99 0.001"/>
+  </equality>
 </mujoco>
