@@ -13,9 +13,6 @@ __pycache__/
 # logs for mujoco
 MUJOCO_LOG.TXT
 
-# rl data
-runs/
 
-*.c3d
-pitchlens/models/*.xml
-pitchlens/logs/*.csv
+# rl data
+runs
