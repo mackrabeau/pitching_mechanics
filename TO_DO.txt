@@ -1,75 +1,134 @@
-RL Roadmap – current status
-═══════════════════════════
+PitchLens — Build Roadmap
+═════════════════════════
 
-Step 1 DONE – Inverse-dynamics torque baseline
-─────────────────────────────────────────────────
-Pre-computed IK trajectory → smoothed → mj_inverse → joint torques.
-Output: pitching_mechanics/logs/torques_1623_3.csv (440 rows × 21 joints)
+PHASE 1: Analytics Pipeline  ✅ COMPLETE
+──────────────────────────────────────────────
 
-Step 2 DONE – Ball release + strike zone
-────────────────────────────────────────────
-  - ball_flight.py: compute_release(), check_strike(), compute_reward()
-  - Ball speed estimated from hand jc speed × 1.5 wrist ratio
-  - Validated: 87.0 mph estimated vs 85.3 mph actual (2% error)
-  - Strike check: release height (1.0–2.2m) + forward fraction (≥80%)
-  - RL reward = speed_mph + 10 × strike_quality
-  - Ball geom added to MJCF model (white sphere on throw_hand)
+Step 1a ✅ — Data layer
+  Files: pitchlens/data/poi_metrics.py
+  - load_poi()      → 411-row biomechanics + metadata DataFrame (joined on session_pitch)
+  - load_hp()       → 1098-row strength/athleticism DataFrame (filtered to pitchers)
+  - load_combined() → both, ready for modeling
+  - Column groups: KINEMATIC_COLS, KINETIC_COLS, ENERGY_COLS, GRF_COLS,
+                   HP_STRENGTH_COLS, HP_ROM_COLS
+  - Derived features: BMI, normalized elbow/shoulder moments
+  - Fixed: metadata 'session' column collision resolved via drop-before-merge
 
-Step 3 DONE – Gym environment wrapper
-──────────────────────────────────────
-  Files: pitch_env.py, trajectory.py (shared IK precomputation)
-  Design: residual policy learning — agent outputs small joint-angle
-    offsets added to the pre-computed reference IK trajectory.
-  Observation space (49-d float32):
-    - Joint angles (21 hinge DOFs)
-    - Joint angular velocities (21)
-    - Hand 3D position + velocity (6)
-    - Time-in-delivery (1 scalar, normalized 0→1)
-  Action space (21-d float32):
-    - Position offsets in [-1, 1], scaled by action_scale (default ±0.15 rad)
-    - One per hinge joint, added to reference IK target each timestep
-  Physics:
-    - Pelvis root driven by mocap body + weld equality (stable kinematic root)
-    - Implicit integrator for numerical stability with stiff actuators
-    - Position actuators track reference + agent offset
-    - 1 kHz physics, 440 steps per episode (0.44s)
-  Reward:
-    - At BR_time: ball_speed_mph + 10 × strike_quality (via ball_flight.py)
-    - Per-step: −w_energy × Σctrl² × dt
-    - Per-step: −w_limit × joint-limit proximity penalty (clamped)
-  Termination:
-    - Truncated: end of replay window (MIR + 0.25s)
-    - Terminated: NaN / joints > ±10 rad → −20 penalty
-  Verified: gymnasium + SB3 env_checker pass, PPO trains successfully
-  Zero-action baseline reward: ~38 (reference tracking only)
+Step 1b ✅ — Biomechanics velo model
+  Files: pitchlens/analytics/velo_model.py
+  - BiomechanicsVeloModel: HistGradientBoostingRegressor (handles NaN natively)
+  - 78 features: kinematics + energy flow + GRF + anthropometrics + playing_level_enc
+  - GroupKFold CV (5-fold, grouped by session — no leakage)
+  - CV R²=0.550  RMSE=3.06 mph on held-out sessions
+  - SHAP TreeExplainer for signed per-feature contributions
+  - Top features: elbow_transfer_fp_br, thorax_distal_transfer_fp_br,
+                  max_shoulder_internal_rotational_velo, shoulder_horizontal_abduction_fp, BMI
 
-Step 4 DONE – RL training loop
-──────────────────────────────
-  Algorithm: PPO (Stable Baselines3, PyTorch backend)
-  Script: train_ppo.py
-    - Single-env PPO with n_steps=440 (full delivery per rollout)
-    - batch_size=220 (divides 440 cleanly)
-    - Implicit MuJoCo integrator, mocap-welded pelvis, same reward as env
-  Logging:
-    - TensorBoard + stdout via SB3 logger (runs/ppo_pitcher by default)
-    - Metrics: episode reward, value loss, KL, entropy, etc.
-  Checkpoints:
-    - Periodic checkpoints in runs/ppo_pitcher/checkpoints
-    - Final model saved as runs/ppo_pitcher/ppo_pitcher_final
-  Quick local smoke test:
-    - python -m pitching_mechanics.train_ppo --root . --session-pitch 1623_3 --timesteps 1760 --logdir runs/ppo_smoke
-  Recommended full run:
-    - python -m pitching_mechanics.train_ppo --root . --session-pitch 1623_3 --timesteps 1000000 --logdir runs/ppo_pitcher
+Step 1c ✅ — Strength velo model
+  Files: pitchlens/analytics/velo_model.py (same file)
+  - StrengthVeloModel: HistGradientBoostingRegressor
+  - 20 features: CMJ/IMTP/hop test/relative strength/ROM + playing_level_enc
+  - Filtered to pitch_speed_mph >= 60 (removes non-pitcher assessments and youth outliers)
+  - KFold CV (5-fold, shuffled)
+  - CV R²=0.342  RMSE=5.19 mph
+  - Ridge baseline R²=-51 (confirmed linear model is inappropriate for this population spread)
+  - Top features: peak_power CMJ, hop test RSI, shoulder IR ROM, jump height, body weight
+  - LaunchpadDiagnostic dataclass combines both models + primary_recommendation
 
-Step 5 – Evaluation & visualization  ← NEXT
-──────────────────────────────────────────
-  - Replay trained policy in MuJoCo viewer
-  - Per-episode metrics: release velocity, release angle, peak
-    joint torques, mechanical energy
-  - Compare learned mechanics vs reference (OBP baseline)
+Step 1d ✅ — Composite mechanic scores
+  Files: pitchlens/analytics/scoring.py
+  - MechanicsScorer: empirical CDF from 411 OBP pitches → 0–100 percentile per variable
+  - 5 composite scores: Arm Action, Block, Posture, Rotation, Momentum
+  - Score distributions well-calibrated (mean ~50, std 10–20 per category)
+  - Injury flags: elbow_varus_moment (UCL), shoulder_ir_moment (rotator cuff)
+  - top_improvements() returns lowest-percentile components for coaching focus
+  - score_cohort() batch-scores entire DataFrame
 
-Step 6 – Polish
-────────────────
-  Wider replay window (wind-up), foot–ground contact model,
-  refined anthropometrics (real mass distribution), air drag on ball,
-  wrist DOF for more accurate release direction.
+Step 1e ✅ — Peer matching
+  Files: pitchlens/analytics/peer_match.py
+  - PeerMatcher: cosine similarity on 62 normalized kinematic + energy features
+  - find_comps() → top-N PitcherComp objects with similarity, velo, level, key metrics
+  - velo_range_for_mechanics() → min/max/mean/median velo of top-N comps
+  - level_breakdown() → playing level distribution of comps
+  - Self-similarity = 1.000 ✓, same-session similarity ~0.95 ✓
+
+KNOWN LIMITATIONS (address later, not blockers)
+  - Strength model R²=0.34 is lower than target — reflects genuine difficulty of
+    predicting velo from strength alone without playing level stratification.
+    Acceptable for a capacity ceiling estimate; would improve with larger dataset.
+  - elbow_transfer_fp_br dominates bio model importance (0.58 permutation importance).
+    Biomechanically valid but worth monitoring — may be a proxy for overall athleticism.
+  - Ridge regression catastrophically fails on hp_obp (R²=-51) — confirmed as
+    population heterogeneity issue, not a bug. XGBoost handles it correctly.
+
+PHASE 2: Dashboard  ← NEXT
+──────────────────────────────────────────────
+
+Step 2a — Streamlit app  ← START HERE
+  File: pitchlens/dashboard/app.py
+  Layout: 4-section single-page app (sidebar for pitcher selection)
+
+  Section 1 — Velocity Diagnostic
+    - Pitcher selector (dropdown from OBP session_pitch list)
+    - Actual vs expected velo (gauge or big number display)
+    - Gap bar: "mechanics gap" + "strength gap"
+    - Primary recommendation text
+    - Top 8 SHAP drivers with signed bar chart
+
+  Section 2 — Mechanic Scores
+    - Radar/spider chart: 5 composite scores vs cohort average (50)
+    - Per-score percentile bars with color coding (red/yellow/green)
+    - Top 5 improvements table (category, variable, current percentile)
+
+  Section 3 — Injury Risk
+    - Elbow varus moment: gauge with threshold zones
+    - Shoulder IR moment: gauge with threshold zones
+    - Normalized values (per kg) for cross-athlete comparison
+
+  Section 4 — Peer Comps
+    - Top 5 mechanical comps as cards
+    - Each card: session_pitch, similarity %, velo, level, key metrics
+    - Velo range summary: "Pitchers with your mechanics throw X–Y mph"
+
+Step 2b — MuJoCo replay integration
+  - "Replay" button per comp → launch MuJoCo viewer for that session_pitch
+  - Requires mjpython; document as optional feature
+
+Step 2c — Deploy for team use
+  - Streamlit Cloud or local network (streamlit run on laptop)
+  - Add .streamlit/config.toml for dark theme
+  - README section: "Running for your team"
+
+PHASE 3: Computer Vision  ← THESIS TARGET
+──────────────────────────────────────────────
+
+Step 3a — MediaPipe pose extraction
+  File: pitchlens/cv/pose_pipeline.py
+  - Build on OBP's existing CV code: openbiomechanics/computer_vision/
+  - MediaPipe Pose → 33 landmarks per frame at 30fps
+  - Detect key events: foot plant (FP), max external rotation (MER),
+    ball release (BR), max internal rotation (MIR)
+  - Output: per-event landmark arrays matching OBP coordinate conventions
+
+Step 3b — POI metric extraction from 2D video
+  - Derive 2D approximations of key POI variables from MediaPipe output:
+      hip_shoulder_separation, arm_slot, lead_knee_extension,
+      torso_tilt, stride_length, cog_velo_x (approximate)
+  - Validate against ground-truth OBP mocap values on held-out sessions
+  - Build calibration regression: 2D MediaPipe estimate → 3D POI equivalent
+  - Target metrics: the top-10 most important features from the bio model
+
+Step 3c — End-to-end phone pipeline
+  - Input: side-view video of pitcher (phone or laptop camera)
+  - Output: mechanics scores + expected velo gap + top improvements
+  - Latency target: < 5 seconds on a 2022 MacBook
+  - Deployment: Streamlit page with video upload or webcam input
+
+FUTURE IDEAS
+──────────────────────────────────────────────
+- Multi-pitch session analysis: mechanical drift across a bullpen
+- Longitudinal tracking: same pitcher across multiple dates
+- Hitting mechanics module (OBP has full hitting dataset too)
+- Fatigue detection: mechanical signature of tired arm
+- Strength model improvement: collect own team strength data to augment hp_obp
+- Statcast integration: pull comp pitcher MLB outcomes via Baseball Savant API

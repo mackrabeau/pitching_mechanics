@@ -1,173 +1,156 @@
-# pitching_mechanics
+# PitchLens
 
-Physics-based pitch delivery replay and torque analysis using [Driveline OpenBiomechanics Project (OBP)](https://github.com/drivelinebaseball/openbiomechanics) landmark data and [MuJoCo](https://mujoco.org/).
+Pitching mechanics analysis and velocity diagnostics built on the [Driveline OpenBiomechanics Project (OBP)](https://github.com/drivelineresearch/openbiomechanics) dataset. Inspired by Driveline's Launchpad software.
 
-## Overview
+## What It Does
 
-This project loads motion-capture joint-center landmarks from the OBP baseball pitching dataset, builds a pitcher-specific MuJoCo model scaled to the athlete's actual segment lengths, and replays the full delivery (foot plant → ball release → follow-through) as a kinematic playback with inverse-dynamics torque computation. It includes a Gymnasium RL environment where an agent can learn to modify pitching mechanics to throw harder while maintaining strike accuracy.
+Given a pitcher's biomechanical data from the OBP mocap dataset (or, in Phase 3, from a phone camera), PitchLens produces:
 
-The goal is to produce a physics-based pitch optimization loop: reference motion → torque baseline → RL training → improved mechanics (see `TO_DO.txt`).
+1. **Expected velocity from mechanics** — what does your delivery pattern predict you should throw? (CV R²=0.55, RMSE=3.1 mph)
+2. **Expected velocity from physical capacity** — what does your strength and athleticism predict? (CV R²=0.34, RMSE=5.2 mph)
+3. **The gap** — the core Launchpad diagnostic. Positive gap = mechanics are the limiter. Negative gap = physical development is the limiter.
+4. **Composite mechanic scores** — five 0–100 percentile scores (Arm Action, Block, Posture, Rotation, Momentum) vs. the OBP elite cohort.
+5. **Injury risk flags** — elbow varus moment (UCL stress proxy) and shoulder IR moment (rotator cuff stress proxy) flagged against clinical thresholds.
+6. **Mechanical peer comps** — the most mechanically similar pitchers in the OBP dataset via cosine similarity, and what velocity range they achieve.
 
 ## Project Structure
 
 ```
-mujoco/                          # https://github.com/google-deepmind/mujoco
-openbiomechanics/                # https://github.com/drivelineresearch/openbiomechanics
-pitching_mechanics/
-├── __init__.py
-├── obp_fullsig.py               # Load OBP full-signal landmarks + events
-├── site_ik.py                    # Damped least-squares IK solver (mj_jacSite)
-├── trajectory.py                # Shared IK trajectory pre-computation
-├── build_pitcher_fullbody.py     # Generate full-body MJCF from OBP landmarks
-├── replay_pitcher_fullbody.py    # Replay + inverse dynamics + ball release
-├── ball_flight.py               # Ball release speed, strike check, RL reward
-├── pitch_env.py                 # Gymnasium RL environment (residual policy)
-├── train_ppo.py                 # PPO training script (logging, checkpoints)
-├── eval_policy.py               # Replay trained policy in MuJoCo viewer
-├── models/
-│   └── pitcher_fullbody_*.xml    # Generated per-pitch MJCF models
-└── logs/
-    └── torques_*.csv             # Inverse-dynamics torque logs
-TO_DO.txt                         # RL roadmap and current status
+pitchlens/
+├── data/
+│   ├── poi_metrics.py          Load & join OBP biomechanics + metadata + hp datasets
+│   └── statcast.py             (planned) Baseball Savant pitch outcome data
+│
+├── analytics/
+│   ├── velo_model.py           Expected velo models (biomechanics + strength, XGBoost + Ridge)
+│   ├── scoring.py              Composite mechanic scores, percentile ranking, injury flags
+│   └── peer_match.py           Cosine-similarity peer matching
+│
+├── simulation/                 MuJoCo-based 3D replay (repurposed as visualizer)
+│   ├── build_pitcher_fullbody.py
+│   ├── replay_pitcher_fullbody.py
+│   ├── ball_flight.py
+│   ├── site_ik.py
+│   └── trajectory.py
+│
+├── dashboard/
+│   └── app.py                  (Phase 2) Streamlit UI
+│
+├── cv/
+│   └── pose_pipeline.py        (Phase 3) Video → POI metrics via MediaPipe
+│
+├── models/                     Generated MuJoCo MJCF files
+├── logs/                       Inverse-dynamics torque CSVs
+└── tests/
 ```
 
-## How It Works
+## Data Sources
 
-1. **OBP Data Loading** (`obp_fullsig.py`): Reads `landmarks.zip` and `force_plate.zip` from the OBP dataset. Extracts 12 joint-center trajectories (throwing arm, glove arm, both legs, both hips) and event timestamps (foot plant, MER, ball release, MIR).
+| Dataset | Path | Rows | Key Contents |
+|---------|------|------|--------------|
+| `poi_metrics.csv` | `openbiomechanics/baseball_pitching/data/poi/` | 411 | ~75 biomechanical POI variables per pitch |
+| `metadata.csv` | `openbiomechanics/baseball_pitching/data/` | 411 | Age, height, weight, playing level per pitch |
+| `hp_obp.csv` | `openbiomechanics/high_performance/data/` | 1934 | CMJ, IMTP, hop test, relative strength, shoulder ROM |
 
-2. **Model Generation** (`build_pitcher_fullbody.py`): Measures segment lengths and body offsets from OBP landmarks at a reference event (default: foot plant). Generates a full-body MJCF with:
-   - Pelvis (freejoint — 6 DOF root)
-   - Trunk (3 DOF: yaw / pitch / roll)
-   - Throwing arm (3 DOF shoulder + 1 DOF elbow)
-   - Glove arm (3 DOF shoulder + 1 DOF elbow)
-   - Rear leg (3 DOF hip + 1 DOF knee + 1 DOF ankle)
-   - Lead leg (3 DOF hip + 1 DOF knee + 1 DOF ankle)
-   - **21 hinge DOFs total**, position actuators on every joint
-
-3. **Replay + Inverse Dynamics** (`replay_pitcher_fullbody.py`):
-   - Pre-computes IK trajectory for the full replay window (440 frames at 1 kHz)
-   - Smooths the trajectory, then derives qvel/qacc via finite differences
-   - Runs `mj_inverse` at each frame to compute the exact joint torques needed to produce the observed motion
-   - Computes ball release speed and strike-zone feasibility at BR_time
-   - Plays back the trajectory in the MuJoCo viewer (kinematic — positions set directly)
-   - Writes a torque CSV log when `--log-torques` is specified
-
-4. **Ball Release & Strike Check** (`ball_flight.py`):
-   - Estimates ball speed from hand jc speed × 1.5 wrist/finger ratio (validated: 87.0 mph estimated vs 85.3 mph actual, 2% error)
-   - Checks release feasibility: height (1.0–2.2m) and forward direction (≥80% of speed toward plate)
-   - Computes a scalar RL reward: `speed_mph + 10 × strike_quality`
-
-5. **IK Solver** (`site_ik.py`): Damped least-squares solver using `mj_jacSite` — tracks 10 joint-center sites (hands, elbows, shoulders, knees, ankles for both sides) while regularizing toward a neutral pose.
-
-6. **RL Environment** (`pitch_env.py`): Gymnasium-compatible environment for residual policy learning. The agent outputs small joint-angle offsets (±0.15 rad) added to the reference IK trajectory. Physics runs forward with MuJoCo (implicit integrator, mocap-welded pelvis for stable root tracking). Reward is ball release speed (mph) + strike quality bonus − energy penalty. Passes both `gymnasium` and `stable-baselines3` env checkers.
-
-7. **Shared Trajectory** (`trajectory.py`): Pre-computes the IK reference trajectory (smoothing, finite-difference velocities/accelerations) used by both the replay script and the RL environment, avoiding code duplication.
+`poi_metrics` and `metadata` are joined on `session_pitch` and drive the biomechanics model. `hp_obp` drives the strength model. The gap between their predictions on the same pitcher is the core actionable output.
 
 ## Quick Start
-
-### Prerequisites
-
-- Python 3.10+
-- macOS: `mjpython` (bundled with the `mujoco` pip package) is required for the viewer.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install mujoco numpy gymnasium stable-baselines3 tensorboard tqdm rich
+pip install -r requirements.txt
 ```
 
-### 1. Build the model
+### Run all smoke tests in order
 
 ```bash
-python -m pitching_mechanics.build_pitcher_fullbody \
-  --root . --session-pitch 1623_3 --event fp_10_time
+python -m pitchlens.data.poi_metrics .
+python -m pitchlens.analytics.velo_model .
+python -m pitchlens.analytics.scoring .
+python -m pitchlens.analytics.peer_match .
 ```
 
-### 2. Replay with torque logging
-
-```bash
-mjpython -m pitching_mechanics.replay_pitcher_fullbody \
-  --root . --session-pitch 1623_3 \
-  --realtime --loop --sleep-mult 3.0 \
-  --log-torques pitching_mechanics/logs/torques_1623_3.csv
+Expected output from `velo_model`:
+```
+BiomechanicsVeloModel fitted on 403 pitches, 78 features.  CV R²=0.550  RMSE=3.06 mph
+StrengthVeloModel fitted on 425 athletes, 20 features.    CV R²=0.342  RMSE=5.19 mph
 ```
 
-The replay window defaults to `fp_10_time` → `MIR_time + 0.25s` (~0.44s of the delivery). Torque summary, ball release speed, and strike check are printed to the console. A per-frame torque CSV is saved.
+## The Launchpad Diagnostic
 
-### 3. Replay only (no torque computation)
+The core output mirrors Driveline's most important insight — comparing what a pitcher's mechanics predict vs. what their physical capacity predicts:
 
-```bash
-mjpython -m pitching_mechanics.replay_pitcher_fullbody \
-  --root . --session-pitch 1623_3 \
-  --realtime --loop --sleep-mult 3.0
+```
+Biomechanics model  → expected velo from mechanics = 90.2 mph
+Actual velo         = 90.4 mph
+Gap                 = -0.2 mph → mechanics and physical capacity are well balanced
+
+Top mechanical drivers (SHAP values):
+  ↑ elbow_transfer_fp_br                      +0.58 mph
+  ↑ thorax_distal_transfer_fp_br              +0.06 mph
+  ↓ max_shoulder_internal_rotational_velo     -0.05 mph
 ```
 
-### 4. Run RL environment smoke test
+## Model Details
 
-```bash
-python -m pitching_mechanics.pitch_env --root . --session-pitch 1623_3 --episodes 3
+### Biomechanics Velo Model
+- **Features**: 78 total — kinematics (joint angles, velocities), energy flow (segment transfer/generation/absorption), ground reaction forces, plus anthropometrics (mass, height, BMI, playing level)
+- **Algorithm**: `HistGradientBoostingRegressor` (handles NaN natively, outperforms Ridge on this dataset)
+- **CV**: GroupKFold 5-fold, grouped by session to prevent data leakage across pitches from the same athlete
+- **Explainability**: SHAP `TreeExplainer` for per-pitcher signed feature contributions
+- **Top predictors**: `elbow_transfer_fp_br`, `thorax_distal_transfer_fp_br`, `max_shoulder_internal_rotational_velo`, `shoulder_horizontal_abduction_fp`, BMI
+
+### Strength Velo Model
+- **Features**: 20 total — CMJ metrics, IMTP peak force, hop test RSI, relative strength, body weight, shoulder/thoracic ROM, playing level (ordinal encoded)
+- **Algorithm**: `HistGradientBoostingRegressor`
+- **CV**: 5-fold KFold (shuffled); filtered to `pitch_speed_mph >= 60` to remove non-pitcher assessments
+- **Top predictors**: `peak_power_[w]_mean_cmj`, hop test RSI, shoulder IR ROM, jump height
+
+### Mechanics Scorer
+- Fits empirical CDFs from the full OBP cohort (411 pitches)
+- Converts raw POI values to 0–100 percentiles vs. cohort
+- Groups into 5 composite scores: Arm Action, Block, Posture, Rotation, Momentum
+- Score distributions are well-calibrated (mean ~50 per category)
+- Flags `elbow_varus_moment` and `shoulder_internal_rotation_moment` as injury risk signals
+
+### Peer Matcher
+- Cosine similarity on 62 normalized kinematic + energy flow features
+- Returns top-N comps with similarity score, velo, playing level, and key metric values
+- Includes `velo_range_for_mechanics()` and `level_breakdown()` for cohort context
+
+## Injury Risk Flags
+
+`elbow_varus_moment` and `shoulder_internal_rotation_moment` are the two primary clinical markers for UCL and rotator cuff stress. PitchLens flags these against conservative thresholds:
+
+| Joint | Normal | Elevated | High Risk |
+|-------|--------|----------|-----------|
+| Elbow varus (UCL proxy) | < 50 Nm | 50–80 Nm | > 80 Nm |
+| Shoulder IR (rotator cuff proxy) | < 40 Nm | 40–60 Nm | > 60 Nm |
+
+Note: the OBP college cohort mean elbow varus moment is ~130–140 Nm, which exceeds these thresholds. This is consistent with the biomechanics literature — high-velocity pitching inherently produces large elbow loads. The flags are most useful for relative comparison and trend tracking across sessions, not as absolute injury predictors.
+
+## Prior Work: MuJoCo Simulation
+
+The `simulation/` directory contains a full-body pitcher MuJoCo model built from OBP landmark data, including a damped least-squares IK solver, inverse-dynamics torque computation via `mj_inverse`, and ball release speed estimation validated to within 2% of radar gun readings. Originally built as a reinforcement learning environment; repurposed as a 3D visualization layer for the dashboard (Phase 2).
+
+## CV Layer (Phase 3 — Thesis Target)
+
+The goal is a phone-deployable tool for use at practice: record a bullpen session from the side, extract POI-equivalent metrics automatically, run them through the Phase 1 models. Makes the full diagnostic accessible without a $50k motion capture setup.
+
+The OBP repo includes camera calibration code and pose tracking starter scripts in `openbiomechanics/computer_vision/` that serve as the CV foundation.
+
+## Dependencies
+
 ```
-
-### 5. Train with PPO (quick script)
-
-Quick local smoke test (small number of timesteps):
-
-```bash
-python -m pitching_mechanics.train_ppo \
-  --root . --session-pitch 1623_3 \
-  --timesteps 1760 \
-  --logdir runs/ppo_smoke
+numpy>=1.24
+pandas>=2.0
+scikit-learn>=1.3
+scipy>=1.11
+shap>=0.45
+mujoco>=3.0
+streamlit>=1.32      # Phase 2
+plotly>=5.18         # Phase 2
+mediapipe>=0.10      # Phase 3
+opencv-python>=4.9   # Phase 3
 ```
-
-Longer training run (CPU or GPU):
-
-```bash
-python -m pitching_mechanics.train_ppo \
-  --root . --session-pitch 1623_3 \
-  --timesteps 1000000 \
-  --logdir runs/ppo_pitcher \
-  --device auto
-```
-
-You can point TensorBoard at the logdir:
-
-```bash
-tensorboard --logdir runs/ppo_pitcher
-```
-
-### 6. View learned mechanics in MuJoCo
-
-After training, replay the trained policy in the viewer (macOS: use `mjpython`):
-
-```bash
-mjpython -m pitching_mechanics.eval_policy --root .
-```
-
-Loops the delivery by default. Options: `--model-path` to load a different checkpoint, `--no-loop` to play once and hold, `--sleep-mult 4` to slow down (default 4 = quarter speed). Press Ctrl-C to exit.
-
-Compare visually with the reference OBP replay:
-
-```bash
-mjpython -m pitching_mechanics.replay_pitcher_fullbody --root . --session-pitch 1623_3 --realtime --loop --sleep-mult 3.0
-```
-
-## Pitch Selection
-
-The default pitch (`1623_3`) was chosen as a median-velocity, right-handed, college-level pitcher from the OBP dataset. To use a different pitch, pass a different `--session-pitch` value (format: `<session>_<pitch_number>`, found in `openbiomechanics/baseball_pitching/data/metadata.csv`).
-
-## Data Source
-
-Joint-center landmarks and event timestamps come from the [Driveline OpenBiomechanics Project](https://github.com/drivelinebaseball/openbiomechanics) (`openbiomechanics/baseball_pitching/data/full_sig/`). The OBP global coordinate system is X = toward home plate, Y = pitcher's left, Z = up — which matches MuJoCo's default world frame, so no coordinate rotation is needed.
-
-## RL Roadmap
-
-See `TO_DO.txt` for the full roadmap. Current status:
-
-| Step | Description | Status |
-|------|-------------|--------|
-| 1 | Inverse-dynamics torque baseline | Done |
-| 2 | Ball release + strike zone | Done |
-| 3 | Gym environment wrapper | Done |
-| 4 | PPO training loop | Done |
-| 5 | Evaluation & visualization | Planned |
-| 6 | Polish (wider window, contacts) | Planned |
