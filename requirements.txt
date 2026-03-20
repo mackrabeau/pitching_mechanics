@@ -1,0 +1,12 @@
+# Core numerical + physics
+numpy<2.0
+mujoco
+
+# RL + env
+gymnasium==1.0.0
+stable-baselines3[extra]==2.4.1
+torch==2.2.2
+
+# Logging / visualization
+tensorboard
+

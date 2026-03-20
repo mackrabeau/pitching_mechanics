@@ -12,3 +12,7 @@ __pycache__/
 
 # logs for mujoco
 MUJOCO_LOG.TXT
+
+
+# rl data
+runs

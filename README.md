@@ -22,6 +22,8 @@ pitching_mechanics/
 ├── replay_pitcher_fullbody.py    # Replay + inverse dynamics + ball release
 ├── ball_flight.py               # Ball release speed, strike check, RL reward
 ├── pitch_env.py                 # Gymnasium RL environment (residual policy)
+├── train_ppo.py                 # PPO training script (logging, checkpoints)
+├── eval_policy.py               # Replay trained policy in MuJoCo viewer
 ├── models/
 │   └── pitcher_fullbody_*.xml    # Generated per-pitch MJCF models
 └── logs/
@@ -71,7 +73,7 @@ TO_DO.txt                         # RL roadmap and current status
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install mujoco numpy gymnasium stable-baselines3
+pip install mujoco numpy gymnasium stable-baselines3 tensorboard tqdm rich
 ```
 
 ### 1. Build the model
@@ -106,15 +108,47 @@ mjpython -m pitching_mechanics.replay_pitcher_fullbody \
 python -m pitching_mechanics.pitch_env --root . --session-pitch 1623_3 --episodes 3
 ```
 
-### 5. Train with PPO (quick test)
+### 5. Train with PPO (quick script)
 
-```python
-from stable_baselines3 import PPO
-from pitching_mechanics.pitch_env import PitchEnv
+Quick local smoke test (small number of timesteps):
 
-env = PitchEnv(root=".", session_pitch="1623_3")
-model = PPO("MlpPolicy", env, verbose=1, n_steps=440)
-model.learn(total_timesteps=50_000)
+```bash
+python -m pitching_mechanics.train_ppo \
+  --root . --session-pitch 1623_3 \
+  --timesteps 1760 \
+  --logdir runs/ppo_smoke
+```
+
+Longer training run (CPU or GPU):
+
+```bash
+python -m pitching_mechanics.train_ppo \
+  --root . --session-pitch 1623_3 \
+  --timesteps 1000000 \
+  --logdir runs/ppo_pitcher \
+  --device auto
+```
+
+You can point TensorBoard at the logdir:
+
+```bash
+tensorboard --logdir runs/ppo_pitcher
+```
+
+### 6. View learned mechanics in MuJoCo
+
+After training, replay the trained policy in the viewer (macOS: use `mjpython`):
+
+```bash
+mjpython -m pitching_mechanics.eval_policy --root .
+```
+
+Loops the delivery by default. Options: `--model-path` to load a different checkpoint, `--no-loop` to play once and hold, `--sleep-mult 4` to slow down (default 4 = quarter speed). Press Ctrl-C to exit.
+
+Compare visually with the reference OBP replay:
+
+```bash
+mjpython -m pitching_mechanics.replay_pitcher_fullbody --root . --session-pitch 1623_3 --realtime --loop --sleep-mult 3.0
 ```
 
 ## Pitch Selection
@@ -134,6 +168,6 @@ See `TO_DO.txt` for the full roadmap. Current status:
 | 1 | Inverse-dynamics torque baseline | Done |
 | 2 | Ball release + strike zone | Done |
 | 3 | Gym environment wrapper | Done |
-| 4 | PPO training loop | Next |
+| 4 | PPO training loop | Done |
 | 5 | Evaluation & visualization | Planned |
 | 6 | Polish (wider window, contacts) | Planned |

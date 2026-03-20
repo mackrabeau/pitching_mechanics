@@ -43,21 +43,26 @@ Step 3 DONE – Gym environment wrapper
   Verified: gymnasium + SB3 env_checker pass, PPO trains successfully
   Zero-action baseline reward: ~38 (reference tracking only)
 
-Step 4 – RL training  ← NEXT
-──────────────────────────
-  Algorithm: PPO (Stable Baselines3)
-  Training: ≥1M timesteps, parallel envs for throughput
-  Warmstart: optional behavior cloning on reference trajectory
-  Curriculum:
-    - Phase 1: reduced joint set (elbow only) to stabilize early learning
-    - Phase 2: add shoulder DOFs
-    - Phase 3: full chain (torso + legs)
-  Logging: reward per episode, ball velocity, peak joint torques,
-    energy expenditure
-  Checkpoints: save policy every N episodes for evaluation
+Step 4 DONE – RL training loop
+──────────────────────────────
+  Algorithm: PPO (Stable Baselines3, PyTorch backend)
+  Script: train_ppo.py
+    - Single-env PPO with n_steps=440 (full delivery per rollout)
+    - batch_size=220 (divides 440 cleanly)
+    - Implicit MuJoCo integrator, mocap-welded pelvis, same reward as env
+  Logging:
+    - TensorBoard + stdout via SB3 logger (runs/ppo_pitcher by default)
+    - Metrics: episode reward, value loss, KL, entropy, etc.
+  Checkpoints:
+    - Periodic checkpoints in runs/ppo_pitcher/checkpoints
+    - Final model saved as runs/ppo_pitcher/ppo_pitcher_final
+  Quick local smoke test:
+    - python -m pitching_mechanics.train_ppo --root . --session-pitch 1623_3 --timesteps 1760 --logdir runs/ppo_smoke
+  Recommended full run:
+    - python -m pitching_mechanics.train_ppo --root . --session-pitch 1623_3 --timesteps 1000000 --logdir runs/ppo_pitcher
 
-Step 5 – Evaluation & visualization
-────────────────────────────────────
+Step 5 – Evaluation & visualization  ← NEXT
+──────────────────────────────────────────
   - Replay trained policy in MuJoCo viewer
   - Per-episode metrics: release velocity, release angle, peak
     joint torques, mechanical energy
