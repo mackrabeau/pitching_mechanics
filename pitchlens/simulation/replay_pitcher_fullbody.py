@@ -18,9 +18,9 @@ from pathlib import Path
 
 import numpy as np
 
-from pitching_mechanics.obp_fullsig import load_pitch
-from pitching_mechanics.ball_flight import compute_release, check_strike, compute_reward
-from pitching_mechanics.site_ik import TrackedSite, solve_site_ik
+from pitchlens.data.obp_fullsig import load_pitch
+from pitchlens.simulation.ball_flight import compute_release, check_strike, compute_reward
+from pitchlens.simulation.site_ik import TrackedSite, solve_site_ik
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
@@ -117,7 +117,7 @@ def main() -> int:
 
     # ── Model ────────────────────────────────────────────────────────────
     if args.model_xml is None:
-        xml = root / "pitching_mechanics" / "models" / f"pitcher_fullbody_{args.session_pitch}.xml"
+        xml = root / "pitchlens" / "models" / f"pitcher_fullbody_{args.session_pitch}.xml"
     else:
         xml = args.model_xml
     model = mujoco.MjModel.from_xml_path(str(xml))

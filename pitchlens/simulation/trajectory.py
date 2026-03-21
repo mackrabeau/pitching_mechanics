@@ -10,8 +10,8 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from pitching_mechanics.obp_fullsig import ObpPitchData
-from pitching_mechanics.site_ik import TrackedSite, solve_site_ik
+from pitchlens.data.obp_fullsig import ObpPitchData
+from pitchlens.simulation.site_ik import TrackedSite, solve_site_ik
 
 
 # ── Geometry helpers ──────────────────────────────────────────────────────

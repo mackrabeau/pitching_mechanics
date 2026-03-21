@@ -1,10 +1,10 @@
 PitchLens — Build Roadmap
 ═════════════════════════
 
-PHASE 1: Analytics Pipeline  ✅ COMPLETE
+PHASE 1: Analytics Pipeline  DONE COMPLETE
 ──────────────────────────────────────────────
 
-Step 1a ✅ — Data layer
+Step 1a DONE — Data layer
   Files: pitchlens/data/poi_metrics.py
   - load_poi()      → 411-row biomechanics + metadata DataFrame (joined on session_pitch)
   - load_hp()       → 1098-row strength/athleticism DataFrame (filtered to pitchers)
@@ -14,7 +14,7 @@ Step 1a ✅ — Data layer
   - Derived features: BMI, normalized elbow/shoulder moments
   - Fixed: metadata 'session' column collision resolved via drop-before-merge
 
-Step 1b ✅ — Biomechanics velo model
+Step 1b DONE — Biomechanics velo model
   Files: pitchlens/analytics/velo_model.py
   - BiomechanicsVeloModel: HistGradientBoostingRegressor (handles NaN natively)
   - 78 features: kinematics + energy flow + GRF + anthropometrics + playing_level_enc
@@ -24,7 +24,7 @@ Step 1b ✅ — Biomechanics velo model
   - Top features: elbow_transfer_fp_br, thorax_distal_transfer_fp_br,
                   max_shoulder_internal_rotational_velo, shoulder_horizontal_abduction_fp, BMI
 
-Step 1c ✅ — Strength velo model
+Step 1c DONE — Strength velo model
   Files: pitchlens/analytics/velo_model.py (same file)
   - StrengthVeloModel: HistGradientBoostingRegressor
   - 20 features: CMJ/IMTP/hop test/relative strength/ROM + playing_level_enc
@@ -35,7 +35,7 @@ Step 1c ✅ — Strength velo model
   - Top features: peak_power CMJ, hop test RSI, shoulder IR ROM, jump height, body weight
   - LaunchpadDiagnostic dataclass combines both models + primary_recommendation
 
-Step 1d ✅ — Composite mechanic scores
+Step 1d DONE — Composite mechanic scores
   Files: pitchlens/analytics/scoring.py
   - MechanicsScorer: empirical CDF from 411 OBP pitches → 0–100 percentile per variable
   - 5 composite scores: Arm Action, Block, Posture, Rotation, Momentum
@@ -44,7 +44,7 @@ Step 1d ✅ — Composite mechanic scores
   - top_improvements() returns lowest-percentile components for coaching focus
   - score_cohort() batch-scores entire DataFrame
 
-Step 1e ✅ — Peer matching
+Step 1e DONE — Peer matching
   Files: pitchlens/analytics/peer_match.py
   - PeerMatcher: cosine similarity on 62 normalized kinematic + energy features
   - find_comps() → top-N PitcherComp objects with similarity, velo, level, key metrics

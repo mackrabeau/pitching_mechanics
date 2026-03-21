@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from pitching_mechanics.obp_fullsig import load_pitch
+from pitchlens.data.obp_fullsig import load_pitch
 
 
 def _interp3(t: float, t_ref: np.ndarray, Y: np.ndarray) -> np.ndarray:
@@ -300,7 +300,7 @@ def main() -> int:
     )
 
     if args.out is None:
-        out = root / "pitching_mechanics" / "models" / f"pitcher_fullbody_{args.session_pitch}.xml"
+        out = root / "pitchlens" / "models" / f"pitcher_fullbody_{args.session_pitch}.xml"
     else:
         out = args.out
     out.parent.mkdir(parents=True, exist_ok=True)
