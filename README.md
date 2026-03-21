@@ -163,11 +163,11 @@ Note: OBP college cohort mean elbow varus is ~130–140 Nm — most elite pitche
 | 2 | Streamlit dashboard (7 sections) | Done |
 | 3a | MediaPipe pose extraction from iPhone video | Planned |
 | 3b | 2D→3D POI metric calibration | Planned |
-| 3c | End-to-end phone pipeline for practice use | Planned (thesis) |
-
+| 3c | End-to-end phone pipeline for practice use | Planned |
+s
 See `IDEAS.md` for the full feature backlog and `TO_DO.txt` for the detailed build log.
 
-## CV Layer (Phase 3 — Thesis Target)
+## CV Layer (Phase 3)
 
 Film a bullpen session with an iPhone, extract POI-equivalent metrics automatically, run through the Phase 1 models. Makes the full Launchpad-style diagnostic accessible without a $50k motion capture setup.
 
