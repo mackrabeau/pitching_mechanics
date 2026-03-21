@@ -33,6 +33,40 @@ Not prioritized — everything here is a candidate for a future sprint.
 - Deserves its own dedicated display with distribution plot showing where the
   pitcher falls and what the elite window looks like.
 - Frame as: "your hip-to-shoulder separation timing is Xms — elite range is Y-Zms."
+- NOTE: correlation with velo is r=0.036 (essentially zero) and correlation with
+  elbow stress is r=-0.008 — not worth featuring as a standalone metric.
+  Superseded by Section 5 (separation + torso velo + stress tradeoff).
+
+### Video frame annotation (Phase 3 — after CV layer)
+- Once CV pipeline is running, every biomechanical event has a timestamp
+  that maps back to a specific frame in the original video.
+- Show the corresponding video frame alongside each diagnostic finding:
+    - Frame at max hip-shoulder separation
+    - Frame at max elbow varus moment (peak UCL stress)
+    - Frame at foot plant, MER, ball release
+    - Frame where energy leak is worst (e.g. lead knee absorption peak)
+- This turns abstract numbers into something a pitcher can actually see —
+  "here is the exact moment your lead knee is leaking energy" is far more
+  actionable than a bar chart value.
+- Implementation: store frame index alongside each POI metric during CV
+  extraction, then display with st.image() or a simple video scrubber.
+- Could also do side-by-side: pitcher's frame at event X vs closest OBP
+  comp's frame at the same event — visual mechanical comparison.
+- This is the feature that makes the CV layer genuinely compelling to
+  coaches and players vs just producing numbers.
+- Current injury flags use fixed Nm thresholds (elbow >80 Nm = high risk).
+  These are conservative and most elite pitchers flag as high risk, which
+  reduces clinical usefulness.
+- Better approach: build a percentile-based risk model — flag when a pitcher
+  is in the top 10% of elbow stress FOR THEIR VELOCITY TIER. A pitcher
+  throwing 90 mph with 120 Nm is less concerning than one throwing 78 mph
+  with 120 Nm — the stress is disproportionate to their output.
+- Could also model stress efficiency: elbow_varus_moment / pitch_speed_mph.
+  Lower ratio = getting more velo per unit of arm stress = more efficient.
+- The separation/stress tradeoff (r=0.162 between hip-shoulder sep and elbow
+  varus) suggests that pitchers in Q3 of separation (not Q4) have the best
+  velo-to-stress profile. Worth investigating as a coaching target range
+  rather than "maximize separation."
 
 ### Session-level averaging
 - Right now each pitch is treated independently. Averaging across all pitches in

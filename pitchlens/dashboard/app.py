@@ -672,6 +672,403 @@ if not level_df.empty:
     st.plotly_chart(fig_level, width="stretch")
 
 st.divider()
+
+# ════════════════════════════════════════════════════════════════════
+# SECTION 5 — KINEMATIC PROFILE: SEPARATION + TORSO VELO
+# ════════════════════════════════════════════════════════════════════
+
+st.markdown('<div class="pl-section">5 · Kinematic Profile</div>', unsafe_allow_html=True)
+
+st.markdown(
+    "<div style='font-size:13px;color:#495057;margin-bottom:16px'>"
+    "Hip-shoulder separation and torso rotational velocity are the two strongest "
+    "kinematic predictors of pitch velocity in the OBP dataset (r=0.29 and r=0.33). "
+    "Higher separation also correlates with more elbow stress — the tradeoff "
+    "between generating power and protecting the arm."
+    "</div>",
+    unsafe_allow_html=True,
+)
+
+sep_col   = "max_rotation_hip_shoulder_separation"
+torso_col = "max_torso_rotational_velo"
+evm_col   = "elbow_varus_moment"
+
+pitcher_sep   = pitcher.get(sep_col)
+pitcher_torso = pitcher.get(torso_col)
+pitcher_evm   = pitcher.get(evm_col)
+
+col_metrics, col_scatter = st.columns([1, 2])
+
+with col_metrics:
+    # Percentile callouts
+    cohort_sep   = poi_df[sep_col].dropna()
+    cohort_torso = poi_df[torso_col].dropna()
+
+    sep_pct   = float((cohort_sep   < pitcher_sep).mean()   * 100) if pitcher_sep   is not None else None
+    torso_pct = float((cohort_torso < pitcher_torso).mean() * 100) if pitcher_torso is not None else None
+
+    # Stress efficiency: elbow varus per mph — lower = more efficient
+    stress_eff     = float(pitcher_evm) / actual_velo if pitcher_evm is not None else None
+    cohort_eff     = poi_df[evm_col] / poi_df["pitch_speed_mph"]
+    eff_pct        = float((cohort_eff < stress_eff).mean() * 100) if stress_eff is not None else None
+    # Invert — lower stress efficiency ratio is better
+    eff_pct_display = (100 - eff_pct) if eff_pct is not None else None
+
+    def pct_color(p):
+        if p is None:
+            return "#868e96"
+        return "#2f9e44" if p >= 60 else ("#f59f00" if p >= 40 else "#e03131")
+
+    metrics_data = [
+        ("Hip-shoulder separation", f"{pitcher_sep:.1f} deg" if pitcher_sep else "N/A",
+         sep_pct, "vs OBP cohort"),
+        ("Torso rotational velocity", f"{pitcher_torso:.0f} deg/s" if pitcher_torso else "N/A",
+         torso_pct, "vs OBP cohort"),
+        ("Stress efficiency", f"{stress_eff:.2f} Nm/mph" if stress_eff else "N/A",
+         eff_pct_display, "lower ratio = less arm stress per mph"),
+    ]
+
+    for label, value, pct, sub in metrics_data:
+        color = pct_color(pct)
+        pct_str = f"{pct:.0f}th percentile" if pct is not None else ""
+        st.markdown(
+            f'<div class="pl-card" style="margin-bottom:8px">'
+            f'<div class="pl-label">{label}</div>'
+            f'<div style="display:flex;align-items:baseline;gap:12px">'
+            f'<div class="pl-value" style="font-size:22px">{value}</div>'
+            f'<div style="font-size:13px;font-weight:600;color:{color}">{pct_str}</div>'
+            f'</div>'
+            f'<div class="pl-sub">{sub}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # Interpretation
+    if sep_pct is not None and torso_pct is not None and stress_eff is not None:
+        if sep_pct >= 60 and torso_pct >= 60 and eff_pct_display >= 50:
+            interp = "Strong kinematic profile — good separation and torso speed with manageable arm stress."
+        elif sep_pct < 40 and torso_pct < 40:
+            interp = "Low separation and torso velocity. Rotational power development is the primary opportunity."
+        elif sep_pct >= 60 and eff_pct_display < 40:
+            interp = "High separation but elevated arm stress relative to velocity output. Kinetic chain efficiency may be leaking energy to the arm."
+        elif torso_pct >= 60 and sep_pct < 40:
+            interp = "Good torso speed but limited hip-shoulder separation. Hip mobility and sequencing work may unlock more velocity."
+        else:
+            interp = "Moderate kinematic profile. See top improvements for specific targets."
+
+        st.markdown(
+            f"<div style='font-size:12px;color:#495057;background:#f8f9fa;"
+            f"border-left:3px solid #339af0;padding:10px 12px;border-radius:4px;margin-top:4px'>"
+            f"{interp}</div>",
+            unsafe_allow_html=True,
+        )
+
+with col_scatter:
+    # Scatter: separation vs torso velo, colored by pitch_speed_mph
+    plot_df = poi_df[[sep_col, torso_col, "pitch_speed_mph", "session_pitch"]].dropna()
+
+    fig_scatter = go.Figure()
+
+    # Background cohort
+    fig_scatter.add_trace(go.Scatter(
+        x=plot_df[sep_col],
+        y=plot_df[torso_col],
+        mode="markers",
+        marker=dict(
+            color=plot_df["pitch_speed_mph"],
+            colorscale="Blues",
+            size=6,
+            opacity=0.6,
+            colorbar=dict(
+                title="mph",
+                thickness=12,
+                len=0.7,
+                tickfont=dict(size=10),
+            ),
+            line=dict(width=0),
+        ),
+        text=plot_df["session_pitch"],
+        hovertemplate="<b>%{text}</b><br>Sep: %{x:.1f}°<br>Torso: %{y:.0f} deg/s<extra></extra>",
+        name="OBP cohort",
+        showlegend=False,
+    ))
+
+    # Selected pitcher highlight
+    if pitcher_sep is not None and pitcher_torso is not None:
+        fig_scatter.add_trace(go.Scatter(
+            x=[pitcher_sep],
+            y=[pitcher_torso],
+            mode="markers+text",
+            marker=dict(
+                color="#e03131",
+                size=14,
+                symbol="diamond",
+                line=dict(color="white", width=1.5),
+            ),
+            text=[selected_session],
+            textposition="top center",
+            textfont=dict(size=11, color="#e03131"),
+            name=selected_session,
+            hovertemplate=f"<b>{selected_session}</b><br>Sep: {pitcher_sep:.1f}°<br>"
+                          f"Torso: {pitcher_torso:.0f} deg/s<extra></extra>",
+        ))
+
+    # Cohort mean crosshairs
+    mean_sep   = float(cohort_sep.mean())
+    mean_torso = float(cohort_torso.mean())
+
+    fig_scatter.add_hline(
+        y=mean_torso, line_dash="dash", line_color="#adb5bd",
+        line_width=1, annotation_text="cohort mean",
+        annotation_font_size=10, annotation_font_color="#adb5bd",
+    )
+    fig_scatter.add_vline(
+        x=mean_sep, line_dash="dash", line_color="#adb5bd",
+        line_width=1,
+    )
+
+    fig_scatter.update_layout(
+        height=340,
+        margin=dict(l=10, r=10, t=20, b=10),
+        xaxis=dict(
+            title="Max hip-shoulder separation (deg)",
+            gridcolor="#f1f3f5",
+            tickfont=dict(size=11),
+        ),
+        yaxis=dict(
+            title="Max torso rotational velocity (deg/s)",
+            gridcolor="#f1f3f5",
+            tickfont=dict(size=11),
+        ),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="system-ui, sans-serif"),
+        showlegend=False,
+    )
+
+    st.plotly_chart(fig_scatter, width="stretch")
+    st.markdown(
+        "<div style='font-size:11px;color:#adb5bd;text-align:center'>"
+        "Dot color = pitch velocity. Red diamond = selected pitcher. "
+        "Dashed lines = cohort averages."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+st.divider()
+
+# ════════════════════════════════════════════════════════════════════
+# SECTION 6 — KINETIC CHAIN EFFICIENCY
+# ════════════════════════════════════════════════════════════════════
+
+st.markdown('<div class="pl-section">6 · Kinetic Chain Efficiency</div>', unsafe_allow_html=True)
+
+st.markdown(
+    "<div style='font-size:13px;color:#495057;margin-bottom:16px'>"
+    "Energy transfer through the kinetic chain is the strongest predictor of pitch velocity "
+    "in this dataset — elbow transfer (r=0.69), shoulder transfer (r=0.65), and thorax "
+    "transfer (r=0.65) each outperform all kinematic features. Each segment shows how much "
+    "energy it generates, transfers onward, and absorbs (loses). Higher transfer = more "
+    "efficient. High absorption relative to generation = energy leak."
+    "</div>",
+    unsafe_allow_html=True,
+)
+
+# ── Define segments ───────────────────────────────────────────────────────
+# Each entry: (display_name, generation_col, transfer_col, absorption_col, window)
+SEGMENTS = [
+    ("Rear hip",   "rear_hip_generation_pkh_fp",  "rear_hip_transfer_pkh_fp",  "rear_hip_absorption_pkh_fp",  "PKH→FP"),
+    ("Rear knee",  "rear_knee_generation_pkh_fp", "rear_knee_transfer_pkh_fp", "rear_knee_absorption_pkh_fp", "PKH→FP"),
+    ("Lead hip",   "lead_hip_generation_fp_br",   "lead_hip_transfer_fp_br",   "lead_hip_absorption_fp_br",   "FP→BR"),
+    ("Lead knee",  "lead_knee_generation_fp_br",  "lead_knee_transfer_fp_br",  "lead_knee_absorption_fp_br",  "FP→BR"),
+    ("Trunk",      None,                           "pelvis_lumbar_transfer_fp_br", None,                       "FP→BR"),
+    ("Thorax",     None,                           "thorax_distal_transfer_fp_br", None,                       "FP→BR"),
+    ("Shoulder",   "shoulder_generation_fp_br",   "shoulder_transfer_fp_br",   "shoulder_absorption_fp_br",   "FP→BR"),
+    ("Elbow",      "elbow_generation_fp_br",       "elbow_transfer_fp_br",      "elbow_absorption_fp_br",      "FP→BR"),
+]
+
+def safe_val(row, col):
+    if col is None:
+        return None
+    v = row.get(col)
+    if v is None or (isinstance(v, float) and np.isnan(v)):
+        return None
+    return float(v)
+
+def cohort_mean(col):
+    if col is None:
+        return None
+    return float(poi_df[col].mean())
+
+# Build display rows
+segment_names = [s[0] for s in SEGMENTS]
+windows       = [s[4] for s in SEGMENTS]
+
+pitcher_gen   = [safe_val(pitcher, s[1]) for s in SEGMENTS]
+pitcher_xfer  = [safe_val(pitcher, s[2]) for s in SEGMENTS]
+pitcher_abs   = [safe_val(pitcher, s[3]) for s in SEGMENTS]
+
+cohort_gen    = [cohort_mean(s[1]) for s in SEGMENTS]
+cohort_xfer   = [cohort_mean(s[2]) for s in SEGMENTS]
+cohort_abs    = [cohort_mean(s[3]) for s in SEGMENTS]
+
+col_chart, col_table = st.columns([2, 1])
+
+with col_chart:
+    fig_chain = go.Figure()
+
+    # Cohort average bars (muted, behind)
+    fig_chain.add_trace(go.Bar(
+        name="Cohort avg — transfer",
+        x=segment_names,
+        y=[v for v in cohort_xfer],
+        marker_color="rgba(173,197,227,0.5)",
+        marker_line_width=0,
+        width=0.35,
+        offset=-0.2,
+        hovertemplate="%{x}<br>Cohort avg transfer: %{y:.1f}<extra></extra>",
+    ))
+
+    fig_chain.add_trace(go.Bar(
+        name="Cohort avg — generation",
+        x=segment_names,
+        y=[v for v in cohort_gen],
+        marker_color="rgba(180,227,185,0.5)",
+        marker_line_width=0,
+        width=0.35,
+        offset=-0.2,
+        base=[-(v or 0) for v in cohort_gen],
+        hovertemplate="%{x}<br>Cohort avg generation: %{y:.1f}<extra></extra>",
+        visible="legendonly",
+    ))
+
+    # Pitcher bars (solid, in front)
+    fig_chain.add_trace(go.Bar(
+        name="Transfer",
+        x=segment_names,
+        y=[v for v in pitcher_xfer],
+        marker_color="#339af0",
+        marker_line_width=0,
+        width=0.35,
+        offset=0.0,
+        hovertemplate="%{x}<br>Transfer: %{y:.1f} W<extra></extra>",
+    ))
+
+    fig_chain.add_trace(go.Bar(
+        name="Generation",
+        x=segment_names,
+        y=[v for v in pitcher_gen],
+        marker_color="#2f9e44",
+        marker_line_width=0,
+        width=0.35,
+        offset=0.0,
+        base=[-(v or 0) for v in pitcher_gen],
+        hovertemplate="%{x}<br>Generation: %{y:.1f} W<extra></extra>",
+        visible="legendonly",
+    ))
+
+    fig_chain.add_trace(go.Bar(
+        name="Absorption",
+        x=segment_names,
+        y=[v if v is not None else 0 for v in pitcher_abs],
+        marker_color="#e03131",
+        marker_line_width=0,
+        width=0.35,
+        offset=0.0,
+        hovertemplate="%{x}<br>Absorption (loss): %{y:.1f} W<extra></extra>",
+    ))
+
+    fig_chain.update_layout(
+        barmode="overlay",
+        height=340,
+        margin=dict(l=10, r=10, t=20, b=10),
+        xaxis=dict(tickfont=dict(size=11)),
+        yaxis=dict(
+            title="Power (W)",
+            gridcolor="#f1f3f5",
+            tickfont=dict(size=11),
+        ),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="system-ui, sans-serif"),
+        legend=dict(
+            orientation="h",
+            y=-0.18,
+            font=dict(size=11),
+        ),
+    )
+    st.plotly_chart(fig_chain, width="stretch")
+    st.markdown(
+        "<div style='font-size:11px;color:#adb5bd;text-align:center'>"
+        "Blue = pitcher transfer. Red = pitcher absorption (energy loss). "
+        "Faded blue = cohort average transfer. Toggle generation in legend."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+with col_table:
+    st.markdown("**Transfer efficiency by segment**")
+    st.markdown(
+        "<div style='font-size:11px;color:#868e96;margin-bottom:8px'>"
+        "Transfer / (Generation + Transfer) where available. "
+        "Higher = less energy lost at that segment."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    for i, (name, gen_col, xfer_col, abs_col, window) in enumerate(SEGMENTS):
+        xfer = pitcher_xfer[i]
+        gen  = pitcher_gen[i]
+        abso = pitcher_abs[i]
+
+        if xfer is None:
+            continue
+
+        # Efficiency: what fraction of available energy is transferred onward
+        available = (gen or 0) + xfer
+        eff = (xfer / available * 100) if available > 0 else None
+
+        # Compare to cohort
+        c_xfer = cohort_xfer[i]
+        c_gen  = cohort_gen[i]
+        if c_xfer is not None:
+            c_avail = (c_gen or 0) + c_xfer
+            c_eff = (c_xfer / c_avail * 100) if c_avail > 0 else None
+        else:
+            c_eff = None
+
+        if eff is not None and c_eff is not None:
+            delta = eff - c_eff
+            delta_color = "#2f9e44" if delta >= 0 else "#e03131"
+            delta_str = f"{delta:+.0f}%"
+        else:
+            delta_color = "#868e96"
+            delta_str = "—"
+
+        eff_str = f"{eff:.0f}%" if eff is not None else "—"
+
+        st.markdown(
+            f'<div class="imp-row">'
+            f'<div>'
+            f'<span style="font-size:12px;font-weight:600;color:#343a40">{name}</span>'
+            f'<span style="font-size:10px;color:#adb5bd;margin-left:6px">{window}</span>'
+            f'</div>'
+            f'<div style="text-align:right">'
+            f'<span style="font-size:13px;font-weight:600;color:#212529">{eff_str}</span>'
+            f'<span style="font-size:11px;color:{delta_color};margin-left:6px">{delta_str} vs avg</span>'
+            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(
+        "<div style='font-size:11px;color:#adb5bd;margin-top:10px'>"
+        "Trunk and thorax show transfer only — generation not isolated in OBP dataset."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+st.divider()
 st.markdown(
     "<div style='text-align:center;font-size:11px;color:#adb5bd'>"
     "PitchLens · Built on Driveline OpenBiomechanics Project · Phase 1 analytics complete · "

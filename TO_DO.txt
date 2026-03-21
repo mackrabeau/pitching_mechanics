@@ -74,17 +74,15 @@ Step 2a DONE — Streamlit app
   - Theme: light, transparent plot backgrounds, no deprecated use_container_width
   Run: streamlit run pitchlens/dashboard/app.py
 
-Step 2b — NEXT SESSION: Three dashboard additions (pick one to start)
+Step 2b DONE — Three dashboard additions
+  Option A — Hip-to-shoulder timing callout
+    Investigated — correlation with velo r=0.036, correlation with elbow stress
+    r=-0.008. Not worth featuring. Superseded by Section 5.
 
-  Option A — Hip-to-shoulder timing callout (easiest, ~1hr)
-    Pull timing_peak_torso_to_peak_pelvis_rot_velo out of improvements table.
-    Show as dedicated section with distribution plot and elite range marker.
-    Most coaching-relevant single metric in the dataset.
-
-  Option B — Kinetic chain efficiency view (medium, ~2hrs)
-    Stacked bar: energy generation/transfer/absorption per segment.
-    Rear leg → lead leg → pelvis → trunk → shoulder → elbow vs cohort average.
-    Shows where energy is leaking in the kinetic chain.
+  Option B DONE — Kinetic chain efficiency view
+    Section 6 in dashboard. Grouped bar chart: transfer/absorption per segment
+    vs cohort average. Efficiency table with delta vs avg per segment.
+    Energy transfer columns are strongest velo predictors in dataset (r=0.65-0.69).
 
   Option C — Torque time-series (most work, most distinctive)
     Load full-signal data per session, plot per-joint torque across delivery.
