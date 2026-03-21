@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT))
 from pitchlens.analytics.peer_match import PeerMatcher
 from pitchlens.analytics.scoring import MechanicsScorer
 from pitchlens.analytics.velo_model import BiomechanicsVeloModel, StrengthVeloModel
+from pitchlens.data.full_sig_moments import KEY_MOMENTS, load_moments, peak_summary
 from pitchlens.data.poi_metrics import load_hp, load_poi
 
 # ── Page config ───────────────────────────────────────────────────────────
@@ -1067,6 +1068,221 @@ with col_table:
         "</div>",
         unsafe_allow_html=True,
     )
+
+st.divider()
+
+# ════════════════════════════════════════════════════════════════════
+# SECTION 7 — JOINT MOMENT TIME-SERIES
+# ════════════════════════════════════════════════════════════════════
+with st.expander("7 · Joint Moment Time-Series  (advanced)", expanded=False):
+
+    st.markdown('<div class="pl-section">7 · Joint Moment Time-Series</div>', unsafe_allow_html=True)
+
+    st.markdown(
+        "<div style='font-size:13px;color:#495057;margin-bottom:16px'>"
+        "Per-frame joint moments across the delivery window (foot plant to MIR). "
+        "Shows exactly when peak stress occurs relative to key events. "
+        "Time is normalized to 0 at foot plant."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    try:
+        frames, events = load_moments(ROOT, selected_session)
+
+        # ── Controls ──────────────────────────────────────────────────────────
+        available_labels = [label for label, col, _ in KEY_MOMENTS
+                            if col in frames.columns and frames[col].notna().any()]
+
+        selected_moments = st.multiselect(
+            "Joints to display",
+            options=available_labels,
+            default=["Elbow varus", "Shoulder IR", "Lead knee"],
+        )
+
+        show_cohort = st.checkbox("Show cohort average overlay", value=False)
+
+        if not selected_moments:
+            st.info("Select at least one joint above.")
+        else:
+            fig_ts = go.Figure()
+
+            # ── Cohort average (optional) ─────────────────────────────────────
+            if show_cohort:
+                try:
+                    # Load all sessions and average by normalized time bin
+                    all_frames, _ = load_moments(ROOT, selected_session)
+                    # Bin time into 90 equal steps across delivery window
+                    time_bins = np.linspace(
+                        frames["time_norm"].min(),
+                        frames["time_norm"].max(),
+                        90,
+                    )
+
+                    import zipfile as _zf, io as _io
+                    _zip = _zf.ZipFile(
+                        ROOT / "openbiomechanics" / "baseball_pitching"
+                        / "data" / "full_sig" / "forces_moments.zip"
+                    )
+                    _full = pd.read_csv(_io.BytesIO(_zip.read("forces_moments.csv")))
+                    _zip.close()
+
+                    for label, col, color in KEY_MOMENTS:
+                        if label not in selected_moments:
+                            continue
+                        # For each session, interpolate to common time grid then average
+                        session_curves = []
+                        for sp, grp in _full.groupby("session_pitch"):
+                            fp_t = grp["fp_10_time"].iloc[0]
+                            mir_t = grp["MIR_time"].iloc[0]
+                            if pd.isna(fp_t) or pd.isna(mir_t):
+                                continue
+                            w = grp[(grp["time"] >= fp_t) & (grp["time"] <= mir_t + 0.05)].copy()
+                            w["time_norm"] = w["time"] - fp_t
+                            if col not in w.columns or w[col].isna().all():
+                                continue
+                            w_clean = w[["time_norm", col]].dropna()
+                            if len(w_clean) < 5:
+                                continue
+                            interp = np.interp(time_bins, w_clean["time_norm"], w_clean[col])
+                            session_curves.append(interp)
+
+                        if session_curves:
+                            avg_curve = np.mean(session_curves, axis=0)
+                            fig_ts.add_trace(go.Scatter(
+                                x=time_bins,
+                                y=avg_curve,
+                                mode="lines",
+                                name=f"{label} (cohort avg)",
+                                line=dict(color=color, width=1.5, dash="dash"),
+                                opacity=0.4,
+                            ))
+                except Exception:
+                    st.caption("Cohort average unavailable for this selection.")
+
+            # ── Selected pitcher traces ───────────────────────────────────────
+            for label, col, color in KEY_MOMENTS:
+                if label not in selected_moments:
+                    continue
+                if col not in frames.columns:
+                    continue
+                trace_data = frames[["time_norm", col]].dropna()
+                if trace_data.empty:
+                    continue
+
+                fig_ts.add_trace(go.Scatter(
+                    x=trace_data["time_norm"],
+                    y=trace_data[col],
+                    mode="lines",
+                    name=label,
+                    line=dict(color=color, width=2),
+                    hovertemplate=f"<b>{label}</b><br>t=%{{x:.3f}}s<br>%{{y:.1f}} Nm<extra></extra>",
+                ))
+
+            # ── Event marker lines ────────────────────────────────────────────
+            event_colors = {
+                "PKH": "#adb5bd",
+                "FP":  "#339af0",
+                "MER": "#f59f00",
+                "BR":  "#e03131",
+                "MIR": "#adb5bd",
+            }
+            y_max = frames[[col for _, col, _ in KEY_MOMENTS
+                            if col in frames.columns]].abs().max().max()
+            y_max = float(y_max) * 1.1 if not np.isnan(y_max) else 300
+
+            for event_label, t in events.items():
+                color = event_colors.get(event_label, "#adb5bd")
+                fig_ts.add_vline(
+                    x=t,
+                    line_color=color,
+                    line_width=1.5,
+                    line_dash="dot" if event_label in ("PKH", "MIR") else "solid",
+                    annotation_text=event_label,
+                    annotation_position="top",
+                    annotation_font_size=11,
+                    annotation_font_color=color,
+                )
+
+            fig_ts.update_layout(
+                height=420,
+                margin=dict(l=10, r=10, t=30, b=10),
+                xaxis=dict(
+                    title="Time from foot plant (s)",
+                    gridcolor="#f1f3f5",
+                    tickfont=dict(size=11),
+                    zeroline=True,
+                    zerolinecolor="#dee2e6",
+                    zerolinewidth=1,
+                ),
+                yaxis=dict(
+                    title="Joint moment (Nm)",
+                    gridcolor="#f1f3f5",
+                    tickfont=dict(size=11),
+                ),
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                font=dict(family="system-ui, sans-serif"),
+                legend=dict(
+                    orientation="h",
+                    y=-0.15,
+                    font=dict(size=11),
+                ),
+                hovermode="x unified",
+            )
+
+            st.plotly_chart(fig_ts, width="stretch")
+
+            # ── Peak summary cards ────────────────────────────────────────────
+            peaks = peak_summary(frames)
+            displayed = {k: v for k, v in peaks.items() if k in selected_moments}
+
+            if displayed:
+                peak_cols = st.columns(len(displayed))
+                for col_idx, (label, peak_val) in enumerate(displayed.items()):
+                    # Find matching color
+                    color = next((c for l, _, c in KEY_MOMENTS if l == label), "#339af0")
+                    # Compare to cohort peak from POI data
+                    poi_col_map = {
+                        "Elbow varus":    "elbow_varus_moment",
+                        "Shoulder IR":    "shoulder_internal_rotation_moment",
+                    }
+                    cohort_note = ""
+                    if label in poi_col_map:
+                        poi_col = poi_col_map[label]
+                        if poi_col in poi_df.columns:
+                            cohort_peak = float(poi_df[poi_col].mean())
+                            delta = peak_val - cohort_peak
+                            sign = "+" if delta >= 0 else ""
+                            d_color = "#e03131" if delta > 10 else ("#f59f00" if delta > 0 else "#2f9e44")
+                            cohort_note = (
+                                f"<span style='font-size:12px;color:{d_color};"
+                                f"font-weight:600'>{sign}{delta:.0f} Nm vs cohort avg</span>"
+                            )
+
+                    with peak_cols[col_idx]:
+                        st.markdown(
+                            f'<div class="pl-card" style="border-top:3px solid {color}">'
+                            f'<div class="pl-label">{label}</div>'
+                            f'<div class="pl-value" style="font-size:22px">'
+                            f'{peak_val:.0f} <span style="font-size:13px;font-weight:400">Nm peak</span>'
+                            f'</div>'
+                            f'<div class="pl-sub">{cohort_note}</div>'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
+
+            st.markdown(
+                "<div style='font-size:11px;color:#adb5bd;margin-top:4px'>"
+                "Moments from OBP forces_moments.zip — ground-truth inverse dynamics, "
+                "FP = foot plant, MER = max external rotation, "
+                "BR = ball release, MIR = max internal rotation."
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
+    except Exception as exc:
+        st.warning(f"Could not load moment time-series for {selected_session}: {exc}")
 
 st.divider()
 st.markdown(

@@ -20,6 +20,25 @@ Not prioritized — everything here is a candidate for a future sprint.
 - Plot per-joint torque across the delivery window with event markers (PKH, FP, MER, BR, MIR).
 - Clinically meaningful: show exactly when peak elbow varus torque occurs relative to BR.
 - Launchpad does not show this publicly — genuine differentiator.
+- IMPLEMENTED as Section 7 in dashboard using OBP forces_moments.zip directly
+  (ground-truth inverse dynamics, no MuJoCo needed).
+
+### Torque time-series: peak stress timing flag (Option 1)
+- Calculate exactly when peak elbow varus moment occurs relative to ball release.
+- Flag as red/yellow/green based on timing window:
+    - Peak stress well before BR = red flag (arm decelerating before release)
+    - Peak stress near BR = normal
+    - Show as callout: "Peak UCL stress occurred 0.04s before ball release"
+- Single additional calculation that makes Section 7 immediately actionable
+  without needing video or comp data.
+
+### Torque time-series: efficient reference group comparison (Option 2)
+- Instead of comparing to cohort average, compare against top quartile of
+  pitchers by stress efficiency (high velo, low elbow moment ratio).
+- Show pitcher's moment curve vs that reference group curve.
+- The gap between the two curves shows where energy is going wrong.
+- More useful than cohort average because it shows what efficient looks like,
+  not just what average looks like.
 
 ### Kinetic chain efficiency view
 - poi_metrics has full energy flow columns: generation, transfer, absorption per segment.

@@ -84,14 +84,23 @@ Step 2b DONE — Three dashboard additions
     vs cohort average. Efficiency table with delta vs avg per segment.
     Energy transfer columns are strongest velo predictors in dataset (r=0.65-0.69).
 
-  Option C — Torque time-series (most work, most distinctive)
-    Load full-signal data per session, plot per-joint torque across delivery.
-    Overlay event markers: PKH, FP, MER, BR, MIR.
-    Nothing like it exists in any public tool.
+  Option C DONE — Joint moment time-series
+    Section 7 in dashboard (inside expander — advanced view).
+    File: pitchlens/data/full_sig_moments.py
+    - Loads from OBP forces_moments.zip directly (ground-truth inverse dynamics)
+    - 90 frames per delivery window, all joints fully populated
+    - Multiselect joints, event markers (PKH/FP/MER/BR/MIR), cohort avg overlay
+    - Peak moment cards with delta vs cohort avg for elbow + shoulder
+    - lru_cache on zip loader — 247k-row CSV read once per session
+    Future improvements in IDEAS.md: peak stress timing flag, efficient
+    reference group comparison, video frame annotation at peak stress.
 
-Step 2c — Deploy for team use
-  - Streamlit Cloud or local network (streamlit run on laptop)
+Step 2c — NEXT: Deploy + show to coaches
+  - Push to GitHub, run on laptop at practice
+  - streamlit run pitchlens/dashboard/app.py from project root
+  - Get feedback from coaches/players on which sections are most useful
   - README section: "Running for your team"
+  - After feedback: decide whether to add manual input mode before CV layer
 
 PHASE 3: Computer Vision  ← THESIS TARGET
 ──────────────────────────────────────────────
