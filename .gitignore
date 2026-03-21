@@ -1,5 +1,11 @@
 # local env
 .venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
 
 # repos to keep locally, not commit
 mujoco/
@@ -16,6 +22,22 @@ MUJOCO_LOG.TXT
 # rl data
 runs/
 
+# model artifacts
 *.c3d
 pitchlens/models/*.xml
 pitchlens/logs/*.csv
+runs/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# macOS
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDEs
+.vscode/
+.idea/

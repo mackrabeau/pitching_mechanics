@@ -61,42 +61,38 @@ KNOWN LIMITATIONS (address later, not blockers)
   - Ridge regression catastrophically fails on hp_obp (R²=-51) — confirmed as
     population heterogeneity issue, not a bug. XGBoost handles it correctly.
 
-PHASE 2: Dashboard  ← NEXT
+PHASE 2: Dashboard  ← CURRENT
 ──────────────────────────────────────────────
 
-Step 2a — Streamlit app  ← START HERE
+Step 2a DONE — Streamlit app
   File: pitchlens/dashboard/app.py
-  Layout: 4-section single-page app (sidebar for pitcher selection)
+  - Sidebar: pitcher dropdown from OBP dataset, sorted by velo desc, model status
+  - Section 1: actual / expected / gap metric cards + SHAP bar chart
+  - Section 2: radar chart (5 scores vs cohort avg 50) + improvement table
+  - Section 3: elbow varus + shoulder IR moment gauges with risk zones
+  - Section 4: top 5 comp cards + playing level breakdown bar chart
+  - Theme: light, transparent plot backgrounds, no deprecated use_container_width
+  Run: streamlit run pitchlens/dashboard/app.py
 
-  Section 1 — Velocity Diagnostic
-    - Pitcher selector (dropdown from OBP session_pitch list)
-    - Actual vs expected velo (gauge or big number display)
-    - Gap bar: "mechanics gap" + "strength gap"
-    - Primary recommendation text
-    - Top 8 SHAP drivers with signed bar chart
+Step 2b — NEXT SESSION: Three dashboard additions (pick one to start)
 
-  Section 2 — Mechanic Scores
-    - Radar/spider chart: 5 composite scores vs cohort average (50)
-    - Per-score percentile bars with color coding (red/yellow/green)
-    - Top 5 improvements table (category, variable, current percentile)
+  Option A — Hip-to-shoulder timing callout (easiest, ~1hr)
+    Pull timing_peak_torso_to_peak_pelvis_rot_velo out of improvements table.
+    Show as dedicated section with distribution plot and elite range marker.
+    Most coaching-relevant single metric in the dataset.
 
-  Section 3 — Injury Risk
-    - Elbow varus moment: gauge with threshold zones
-    - Shoulder IR moment: gauge with threshold zones
-    - Normalized values (per kg) for cross-athlete comparison
+  Option B — Kinetic chain efficiency view (medium, ~2hrs)
+    Stacked bar: energy generation/transfer/absorption per segment.
+    Rear leg → lead leg → pelvis → trunk → shoulder → elbow vs cohort average.
+    Shows where energy is leaking in the kinetic chain.
 
-  Section 4 — Peer Comps
-    - Top 5 mechanical comps as cards
-    - Each card: session_pitch, similarity %, velo, level, key metrics
-    - Velo range summary: "Pitchers with your mechanics throw X–Y mph"
-
-Step 2b — MuJoCo replay integration
-  - "Replay" button per comp → launch MuJoCo viewer for that session_pitch
-  - Requires mjpython; document as optional feature
+  Option C — Torque time-series (most work, most distinctive)
+    Load full-signal data per session, plot per-joint torque across delivery.
+    Overlay event markers: PKH, FP, MER, BR, MIR.
+    Nothing like it exists in any public tool.
 
 Step 2c — Deploy for team use
   - Streamlit Cloud or local network (streamlit run on laptop)
-  - Add .streamlit/config.toml for dark theme
   - README section: "Running for your team"
 
 PHASE 3: Computer Vision  ← THESIS TARGET
