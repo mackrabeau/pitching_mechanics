@@ -20,25 +20,6 @@ Not prioritized — everything here is a candidate for a future sprint.
 - Plot per-joint torque across the delivery window with event markers (PKH, FP, MER, BR, MIR).
 - Clinically meaningful: show exactly when peak elbow varus torque occurs relative to BR.
 - Launchpad does not show this publicly — genuine differentiator.
-- IMPLEMENTED as Section 7 in dashboard using OBP forces_moments.zip directly
-  (ground-truth inverse dynamics, no MuJoCo needed).
-
-### Torque time-series: peak stress timing flag (Option 1)
-- Calculate exactly when peak elbow varus moment occurs relative to ball release.
-- Flag as red/yellow/green based on timing window:
-    - Peak stress well before BR = red flag (arm decelerating before release)
-    - Peak stress near BR = normal
-    - Show as callout: "Peak UCL stress occurred 0.04s before ball release"
-- Single additional calculation that makes Section 7 immediately actionable
-  without needing video or comp data.
-
-### Torque time-series: efficient reference group comparison (Option 2)
-- Instead of comparing to cohort average, compare against top quartile of
-  pitchers by stress efficiency (high velo, low elbow moment ratio).
-- Show pitcher's moment curve vs that reference group curve.
-- The gap between the two curves shows where energy is going wrong.
-- More useful than cohort average because it shows what efficient looks like,
-  not just what average looks like.
 
 ### Kinetic chain efficiency view
 - poi_metrics has full energy flow columns: generation, transfer, absorption per segment.
@@ -52,40 +33,26 @@ Not prioritized — everything here is a candidate for a future sprint.
 - Deserves its own dedicated display with distribution plot showing where the
   pitcher falls and what the elite window looks like.
 - Frame as: "your hip-to-shoulder separation timing is Xms — elite range is Y-Zms."
-- NOTE: correlation with velo is r=0.036 (essentially zero) and correlation with
-  elbow stress is r=-0.008 — not worth featuring as a standalone metric.
-  Superseded by Section 5 (separation + torso velo + stress tradeoff).
 
-### Video frame annotation (Phase 3 — after CV layer)
-- Once CV pipeline is running, every biomechanical event has a timestamp
-  that maps back to a specific frame in the original video.
-- Show the corresponding video frame alongside each diagnostic finding:
-    - Frame at max hip-shoulder separation
-    - Frame at max elbow varus moment (peak UCL stress)
-    - Frame at foot plant, MER, ball release
-    - Frame where energy leak is worst (e.g. lead knee absorption peak)
-- This turns abstract numbers into something a pitcher can actually see —
-  "here is the exact moment your lead knee is leaking energy" is far more
-  actionable than a bar chart value.
-- Implementation: store frame index alongside each POI metric during CV
-  extraction, then display with st.image() or a simple video scrubber.
-- Could also do side-by-side: pitcher's frame at event X vs closest OBP
-  comp's frame at the same event — visual mechanical comparison.
-- This is the feature that makes the CV layer genuinely compelling to
-  coaches and players vs just producing numbers.
-- Current injury flags use fixed Nm thresholds (elbow >80 Nm = high risk).
-  These are conservative and most elite pitchers flag as high risk, which
-  reduces clinical usefulness.
-- Better approach: build a percentile-based risk model — flag when a pitcher
-  is in the top 10% of elbow stress FOR THEIR VELOCITY TIER. A pitcher
-  throwing 90 mph with 120 Nm is less concerning than one throwing 78 mph
-  with 120 Nm — the stress is disproportionate to their output.
-- Could also model stress efficiency: elbow_varus_moment / pitch_speed_mph.
-  Lower ratio = getting more velo per unit of arm stress = more efficient.
-- The separation/stress tradeoff (r=0.162 between hip-shoulder sep and elbow
-  varus) suggests that pitchers in Q3 of separation (not Q4) have the best
-  velo-to-stress profile. Worth investigating as a coaching target range
-  rather than "maximize separation."
+### Causal chain model: upstream kinematics → elbow velocity → ball speed
+- Dashboard implementation of the two-chain framework developed in the research
+  paper (see research_ideas.md for full details).
+- Two independent chains: ground force (lead_grf_mag_max dominant) and
+  rotational (torso rotation → shoulder IR → elbow). Largely orthogonal.
+- Dashboard approach: multi-output model predicting all chain targets
+  simultaneously + confidence intervals. Feeds the sequential kinetic chain
+  decomposition section.
+- Depends on research paper results to determine final chain structure and
+  feature selection before dashboard implementation.
+
+### Option 2: use existing timing variable without full signal computation
+- If full signal inter-chain timing computation (research paper) is too slow
+  for the dashboard, fall back to timing_peak_torso_to_peak_pelvis_rot_velo
+  as a proxy for chain coordination.
+- Note as limitation in dashboard: "timing shown is intra-rotational only;
+  inter-chain timing requires full signal analysis (see research)."
+- Low effort, already in poi_metrics.csv, just needs a dedicated display
+  with percentile and elite range annotation.
 
 ### Session-level averaging
 - Right now each pitch is treated independently. Averaging across all pitches in
@@ -96,6 +63,47 @@ Not prioritized — everything here is a candidate for a future sprint.
 ---
 
 ## Dashboard & UI
+
+### Coaching buzzword quantification panel
+- Translate common coaching cues into OBP metrics with percentile bars, making
+  the dashboard legible to coaches who don't speak biomechanics.
+- Proposed mappings:
+    - Hip-shoulder separation → max_rotation_hip_shoulder_separation
+    - Lead leg block / lock → lead_knee_extension_velo_fp_br, lead_knee_angle_br
+    - Front side closed → trunk_rotation_fp, pelvis_rotation_fp
+    - Staying back → timing_peak_torso_to_peak_pelvis_rot_velo
+    - Hip rotation → max_pelvis_rotational_velo
+    - Arm path / slot → shoulder_horizontal_abduction_mer, elbow_flexion_mer
+    - Glove arm pull → glove_shoulder_horizontal_abduction_fp_br
+    - Trunk tilt → trunk_lateral_tilt_br
+    - Stride length → stride_length
+    - Momentum toward plate → max_cog_velo_x
+- Each cue gets: pitcher's raw value, percentile vs OBP cohort, color-coded bar
+  (green/yellow/red), and a one-line plain-English interpretation.
+- Most coach-legible section in the dashboard. Coaches say "lock your front side,"
+  not "lead_knee_extension_velo_fp_br." This bridges that gap explicitly.
+- Low implementation cost — all columns already exist in poi_metrics.csv.
+
+### Sequential kinetic chain decomposition
+- Reframe the kinetic chain not as 8 independent bar charts but as a sequential
+  chain with rated links: stride → foot plant → hip rotation → trunk rotation →
+  shoulder → elbow → ball release.
+- Each link is scored on how efficiently it transfers energy to the next link,
+  backed by the causal chain model (upstream kinematics → elbow velocity → velo).
+- The chain breaks at the weakest link — that's where coaching focus goes.
+- Key differentiator from current Section 6: instead of "here are 8 bar charts,"
+  it becomes "here is a chain with 6 links, link 4 is red, that's your problem."
+- SHAP from the causal model quantifies the dollar value of each inefficiency:
+  "your hip rotation is 45th percentile, costing ~3 mph of elbow velocity and
+  ~2 mph of ball speed." Actionable, not just diagnostic.
+- Visual: horizontal chain diagram, each link colored green/yellow/red by
+  percentile, with an expandable detail panel per link showing the underlying
+  metrics and drill recommendations.
+- Novelty: this sequential quantified format with per-link efficiency scores and
+  ML-backed causal attribution hasn't been published or productized. Driveline
+  shows kinetic chain content but not in this decomposed format.
+- Depends on: causal chain model (listed under Analytics), coaching buzzword
+  mappings above, and LLM drill recommendations pipeline.
 
 ### LLM-powered drill recommendations (RAG pipeline)
 - Take top 3 areas for improvement from the scorer.
