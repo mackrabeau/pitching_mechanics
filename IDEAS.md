@@ -20,25 +20,6 @@ Not prioritized — everything here is a candidate for a future sprint.
 - Plot per-joint torque across the delivery window with event markers (PKH, FP, MER, BR, MIR).
 - Clinically meaningful: show exactly when peak elbow varus torque occurs relative to BR.
 - Launchpad does not show this publicly — genuine differentiator.
-- IMPLEMENTED as Section 7 in dashboard using OBP forces_moments.zip directly
-  (ground-truth inverse dynamics, no MuJoCo needed).
-
-### Torque time-series: peak stress timing flag (Option 1)
-- Calculate exactly when peak elbow varus moment occurs relative to ball release.
-- Flag as red/yellow/green based on timing window:
-    - Peak stress well before BR = red flag (arm decelerating before release)
-    - Peak stress near BR = normal
-    - Show as callout: "Peak UCL stress occurred 0.04s before ball release"
-- Single additional calculation that makes Section 7 immediately actionable
-  without needing video or comp data.
-
-### Torque time-series: efficient reference group comparison (Option 2)
-- Instead of comparing to cohort average, compare against top quartile of
-  pitchers by stress efficiency (high velo, low elbow moment ratio).
-- Show pitcher's moment curve vs that reference group curve.
-- The gap between the two curves shows where energy is going wrong.
-- More useful than cohort average because it shows what efficient looks like,
-  not just what average looks like.
 
 ### Kinetic chain efficiency view
 - poi_metrics has full energy flow columns: generation, transfer, absorption per segment.
@@ -52,40 +33,6 @@ Not prioritized — everything here is a candidate for a future sprint.
 - Deserves its own dedicated display with distribution plot showing where the
   pitcher falls and what the elite window looks like.
 - Frame as: "your hip-to-shoulder separation timing is Xms — elite range is Y-Zms."
-- NOTE: correlation with velo is r=0.036 (essentially zero) and correlation with
-  elbow stress is r=-0.008 — not worth featuring as a standalone metric.
-  Superseded by Section 5 (separation + torso velo + stress tradeoff).
-
-### Video frame annotation (Phase 3 — after CV layer)
-- Once CV pipeline is running, every biomechanical event has a timestamp
-  that maps back to a specific frame in the original video.
-- Show the corresponding video frame alongside each diagnostic finding:
-    - Frame at max hip-shoulder separation
-    - Frame at max elbow varus moment (peak UCL stress)
-    - Frame at foot plant, MER, ball release
-    - Frame where energy leak is worst (e.g. lead knee absorption peak)
-- This turns abstract numbers into something a pitcher can actually see —
-  "here is the exact moment your lead knee is leaking energy" is far more
-  actionable than a bar chart value.
-- Implementation: store frame index alongside each POI metric during CV
-  extraction, then display with st.image() or a simple video scrubber.
-- Could also do side-by-side: pitcher's frame at event X vs closest OBP
-  comp's frame at the same event — visual mechanical comparison.
-- This is the feature that makes the CV layer genuinely compelling to
-  coaches and players vs just producing numbers.
-- Current injury flags use fixed Nm thresholds (elbow >80 Nm = high risk).
-  These are conservative and most elite pitchers flag as high risk, which
-  reduces clinical usefulness.
-- Better approach: build a percentile-based risk model — flag when a pitcher
-  is in the top 10% of elbow stress FOR THEIR VELOCITY TIER. A pitcher
-  throwing 90 mph with 120 Nm is less concerning than one throwing 78 mph
-  with 120 Nm — the stress is disproportionate to their output.
-- Could also model stress efficiency: elbow_varus_moment / pitch_speed_mph.
-  Lower ratio = getting more velo per unit of arm stress = more efficient.
-- The separation/stress tradeoff (r=0.162 between hip-shoulder sep and elbow
-  varus) suggests that pitchers in Q3 of separation (not Q4) have the best
-  velo-to-stress profile. Worth investigating as a coaching target range
-  rather than "maximize separation."
 
 ### Session-level averaging
 - Right now each pitch is treated independently. Averaging across all pitches in
@@ -97,7 +44,24 @@ Not prioritized — everything here is a candidate for a future sprint.
 
 ## Dashboard & UI
 
-### LLM-powered drill recommendations (RAG pipeline)
+### Kinetic chain video examples + LLM coaching
+- In Section 6 (Kinetic Chain Efficiency), when a pitcher scores poorly on a
+  specific segment (e.g. lead hip absorption), show two clickable example videos
+  from the OBP dataset: one pitcher in the top quartile for that metric, one in
+  the bottom quartile. The pitcher can visually see what good and bad looks like.
+- Pair each example with an LLM-generated explanation: what the metric means
+  biomechanically, why it matters for velocity and injury risk, and 2–3 specific
+  drills to address it.
+- Implementation: pre-select representative OBP clips for each of the ~8 kinetic
+  chain segments. Store as short annotated video snippets. LLM prompt takes the
+  metric name, the pitcher's percentile, and relevant context from the RAG
+  knowledge base (Driveline blog, ASMI, mechanics literature).
+- This closes the loop from "here's your number" → "here's what it looks like" →
+  "here's how to fix it" — the most actionable possible coaching output.
+- Natural extension of the LLM drill recommendations idea. Both should be built
+  together once the RAG pipeline is in place.
+- Video hosting: could use Streamlit's st.video() with local clips or YouTube
+  links to OBP-associated public content.
 - Take top 3 areas for improvement from the scorer.
 - Map them to specific interventions via a RAG pipeline over:
     - Driveline's public research blog and OBP documentation
@@ -139,6 +103,20 @@ Not prioritized — everything here is a candidate for a future sprint.
 - Pipeline: MediaPipe Pose → event detection (FP, MER, BR, MIR) →
   POI metric extraction → calibration model → report layer.
 - Latency target: < 5 seconds on a 2022 MacBook.
+
+### Automatic bullpen segmentation
+- User uploads one continuous video of a full bullpen session (30–50 pitches).
+- Pipeline automatically segments it into individual pitch clips before running
+  event detection and metric extraction on each.
+- Segmentation logic: detect bursts of sustained high wrist speed separated by
+  idle periods — each burst is one pitch. Output is a list of (start_time, end_time)
+  clips, one per pitch.
+- This is the same delivery window detector needed for single-pitch trimming,
+  generalized to N pitches.
+- Enables session-level analysis (fatigue detection, pitch-to-pitch consistency)
+  without requiring the user to manually clip each throw.
+- Natural prerequisite for the multi-pitch session analysis and fatigue detection
+  ideas listed in Dashboard & UI.
 
 ### Two-camera setup for full 3D coverage
 - Side view: good coverage of X (forward) and Z (vertical) planes.

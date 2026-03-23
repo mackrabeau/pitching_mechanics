@@ -11,6 +11,9 @@ build/
 mujoco/
 openbiomechanics/
 
+# sample pitching videos
+videos/
+
 # python cruft
 __pycache__/
 **/__pycache__/

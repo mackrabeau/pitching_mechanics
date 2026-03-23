@@ -12,7 +12,7 @@ streamlit>=1.32
 plotly>=5.18
 
 # CV layer (Phase 3)
-mediapipe>=0.10
+mediapipe>=0.10.14
 opencv-python>=4.9
 
 # Dev / testing
