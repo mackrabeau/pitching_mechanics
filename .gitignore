@@ -27,6 +27,7 @@ runs/
 pitchlens/models/*.xml
 pitchlens/logs/*.csv
 runs/
+videos/
 
 # Streamlit
 .streamlit/secrets.toml
