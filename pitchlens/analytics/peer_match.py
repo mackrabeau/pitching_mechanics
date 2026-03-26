@@ -23,7 +23,8 @@ import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import StandardScaler
 
-from pitchlens.data.poi_metrics import KINEMATIC_COLS, ENERGY_COLS, TARGET_COL
+from pitchlens.constants import TARGET_COL
+from pitchlens.data.poi_metrics import KINEMATIC_COLS, ENERGY_COLS
 
 
 # Features used for similarity matching
@@ -217,7 +218,6 @@ def _safe_float(x) -> float | None:
 
 if __name__ == "__main__":
     import sys
-    sys.path.insert(0, str(__import__("pathlib").Path(__file__).parents[2]))
     from pitchlens.data.poi_metrics import load_poi
 
     root = sys.argv[1] if len(sys.argv) > 1 else "."

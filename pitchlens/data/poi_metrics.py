@@ -17,6 +17,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from pitchlens.constants import TARGET_COL
+
 # ── Column groups for downstream use ─────────────────────────────────────
 
 # Kinematic features (joint angles, velocities)
@@ -130,7 +132,8 @@ HP_ROM_COLS = [
     "ShoulderIRL", "ShoulderIRR",
 ]
 
-TARGET_COL = "pitch_speed_mph"
+
+# TARGET_COL imported from pitchlens.constants (single source of truth)
 
 
 # ── Loaders ───────────────────────────────────────────────────────────────
@@ -225,6 +228,7 @@ def summarize(df: pd.DataFrame, label: str = "DataFrame") -> None:
 
 if __name__ == "__main__":
     import sys
+
     root = sys.argv[1] if len(sys.argv) > 1 else "."
 
     poi_df, hp_df = load_combined(root)

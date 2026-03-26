@@ -21,6 +21,7 @@ MUJOCO_LOG.TXT
 
 # model artifacts
 *.c3d
+*.joblib
 pitchlens/models/*.xml
 pitchlens/logs/*.csv
 models/

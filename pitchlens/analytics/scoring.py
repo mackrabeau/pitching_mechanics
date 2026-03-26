@@ -32,80 +32,11 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-
-# ── Score component definitions ───────────────────────────────────────────
-# Each entry: (column_name, weight, positive_direction)
-# positive_direction=True  → higher value = better score
-# positive_direction=False → lower value = better score (inverted before percentile)
-
-ARM_ACTION_COMPONENTS = [
-    ("max_shoulder_internal_rotational_velo",  1.5, True),
-    ("max_shoulder_external_rotation",          1.0, True),
-    ("max_elbow_flexion",                       0.5, True),   # higher at MER = more layback
-    ("arm_slot",                                0.5, True),
-    ("shoulder_horizontal_abduction_fp",        1.0, True),
-    ("elbow_flexion_mer",                       0.8, True),
-    ("timing_peak_torso_to_peak_pelvis_rot_velo", 1.0, True),
-]
-
-BLOCK_COMPONENTS = [
-    ("lead_knee_extension_angular_velo_br",     1.5, True),   # faster extension = better block
-    ("lead_knee_extension_angular_velo_max",    1.0, True),
-    ("lead_knee_extension_from_fp_to_br",       1.0, True),
-    ("lead_grf_z_max",                          1.2, True),   # vertical force at lead foot
-    ("lead_grf_mag_max",                        1.0, True),
-    ("peak_rfd_lead",                           1.0, True),   # rate of force development
-]
-
-POSTURE_COMPONENTS = [
-    ("torso_anterior_tilt_fp",                  1.0, True),
-    ("torso_lateral_tilt_fp",                   0.8, False),  # too much tilt = bad
-    ("torso_anterior_tilt_mer",                 1.0, True),
-    ("torso_anterior_tilt_br",                  0.8, True),
-    ("torso_lateral_tilt_br",                   0.8, False),
-    ("pelvis_anterior_tilt_fp",                 0.6, True),
-]
-
-ROTATION_COMPONENTS = [
-    ("max_rotation_hip_shoulder_separation",    2.0, True),   # most important single metric
-    ("max_torso_rotational_velo",               1.5, True),
-    ("max_pelvis_rotational_velo",              1.2, True),
-    ("rotation_hip_shoulder_separation_fp",     1.0, True),
-    ("torso_rotation_br",                       0.8, True),
-    ("pelvis_lumbar_transfer_fp_br",            0.8, True),
-    ("thorax_distal_transfer_fp_br",            0.8, True),
-]
-
-MOMENTUM_COMPONENTS = [
-    ("max_cog_velo_x",                          2.0, True),   # forward momentum
-    ("cog_velo_pkh",                            1.2, True),
-    ("stride_length",                           1.0, True),
-    ("rear_grf_x_max",                          1.0, True),   # drive off rubber
-    ("rear_grf_mag_max",                        0.8, True),
-    ("peak_rfd_rear",                           0.8, True),
-    ("lead_hip_generation_fp_br",               0.8, True),
-]
-
-# Injury risk thresholds (Nm, from biomechanics literature)
-# High school / college thresholds are more conservative
-ELBOW_VARUS_THRESHOLDS = {
-    "low":    50.0,    # < 50 Nm = low risk
-    "medium": 80.0,    # 50-80 Nm = elevated
-    "high":   100.0,   # > 80 Nm = high risk
-}
-SHOULDER_IR_THRESHOLDS = {
-    "low":    40.0,
-    "medium": 60.0,
-    "high":   80.0,
-}
-
-SCORE_COMPONENTS = {
-    "arm_action": ARM_ACTION_COMPONENTS,
-    "block":      BLOCK_COMPONENTS,
-    "posture":    POSTURE_COMPONENTS,
-    "rotation":   ROTATION_COMPONENTS,
-    "momentum":   MOMENTUM_COMPONENTS,
-}
+from pitchlens.analytics.scoring_config import (
+    SCORE_COMPONENTS,
+    ELBOW_VARUS_THRESHOLDS,
+    SHOULDER_IR_THRESHOLDS,
+)
 
 
 # ── Result type ───────────────────────────────────────────────────────────
@@ -161,7 +92,6 @@ class MechanicsScorer:
 
     def __init__(self):
         self._ref_df: pd.DataFrame | None = None
-        # Per-variable empirical CDFs: {col: (sorted_values, percentiles)}
         self._cdfs: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         self._fitted = False
 
@@ -196,7 +126,6 @@ class MechanicsScorer:
             return None
         sorted_vals, pcts = self._cdfs[col]
         pct = float(np.interp(value, sorted_vals, pcts))
-        # Invert if higher raw value = worse
         return pct if positive_direction else (100.0 - pct)
 
     def _composite_score(
@@ -300,7 +229,6 @@ class MechanicsScorer:
             for col, pct in per_var.items():
                 low_pcts.append((score_name, col, pct))
 
-        # Sort by percentile ascending (worst first)
         low_pcts.sort(key=lambda t: t[2])
         return low_pcts[:n]
 
@@ -309,7 +237,7 @@ class MechanicsScorer:
 
 if __name__ == "__main__":
     import sys
-    sys.path.insert(0, str(__import__("pathlib").Path(__file__).parents[2]))
+
     from pitchlens.data.poi_metrics import load_poi
 
     root = sys.argv[1] if len(sys.argv) > 1 else "."
@@ -317,7 +245,6 @@ if __name__ == "__main__":
 
     scorer = MechanicsScorer().fit(poi_df)
 
-    # Score a few pitchers and show distribution
     scored = scorer.score_cohort(poi_df)
 
     print("\nScore distributions across OBP cohort:")

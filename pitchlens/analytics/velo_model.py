@@ -38,10 +38,10 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.inspection import permutation_importance
 from sklearn.linear_model import Ridge, RidgeCV
-from sklearn.model_selection import cross_val_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from pitchlens.constants import LEVEL_MAP, LEVEL_MAP_TITLECASE, TARGET_COL
 from pitchlens.data.poi_metrics import (
     ALL_BIO_COLS,
     KINEMATIC_COLS,
@@ -50,7 +50,12 @@ from pitchlens.data.poi_metrics import (
     GRF_COLS,
     HP_STRENGTH_COLS,
     HP_ROM_COLS,
-    TARGET_COL,
+)
+from pitchlens.analytics.base_model import (
+    run_cross_validation,
+    compute_shap_background,
+    compute_shap_values,
+    extract_session_groups,
 )
 
 
@@ -96,12 +101,10 @@ class _BaseVeloModel:
         self._r2_cv: float = float("nan")
         self._rmse_cv: float = float("nan")
         self._feature_importances: pd.Series | None = None
-        self._X_train_scaled: np.ndarray | None = None   # SHAP background data
+        self._X_train_scaled: np.ndarray | None = None
 
     def _build_pipeline(self) -> Pipeline:
         if self.use_xgb:
-            # HistGradientBoostingRegressor: handles NaN natively, faster than GBR,
-            # better on tabular data with mixed feature types
             model = HistGradientBoostingRegressor(
                 max_iter=300,
                 max_depth=4,
@@ -109,59 +112,29 @@ class _BaseVeloModel:
                 min_samples_leaf=10,
                 random_state=42,
             )
-            # No scaler needed for tree models, but keep it for consistent pipeline API
         else:
             model = RidgeCV(alphas=[0.1, 1.0, 10.0, 100.0, 1000.0])
         return Pipeline([("scaler", StandardScaler()), ("model", model)])
 
-    def _cross_validate(self, X: pd.DataFrame, y: pd.Series, groups: pd.Series | None) -> None:
-        """Group-aware 5-fold CV (keeps same session together), else plain 5-fold.
-
-        LeaveOneGroupOut is avoided because some sessions have only 2-3 pitches,
-        producing single-sample test folds where R^2 is undefined.
-        """
-        from sklearn.model_selection import GroupKFold, KFold
-        if groups is not None:
-            n_splits = min(5, groups.nunique())
-            cv = GroupKFold(n_splits=n_splits)
-            scores = cross_val_score(
-                self._pipeline, X, y,
-                cv=cv, groups=groups,
-                scoring="r2", n_jobs=-1,
-            )
-            rmse_scores = cross_val_score(
-                self._pipeline, X, y,
-                cv=cv, groups=groups,
-                scoring="neg_root_mean_squared_error", n_jobs=-1,
-            )
-        else:
-            cv5 = KFold(n_splits=5, shuffle=True, random_state=42)
-            scores = cross_val_score(
-                self._pipeline, X, y,
-                cv=cv5, scoring="r2", n_jobs=-1,
-            )
-            rmse_scores = cross_val_score(
-                self._pipeline, X, y,
-                cv=cv5, scoring="neg_root_mean_squared_error", n_jobs=-1,
-            )
-        self._r2_cv = float(np.mean(scores))
-        self._rmse_cv = float(-np.mean(rmse_scores))
+    def _cross_validate(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        groups: pd.Series | None,
+    ) -> None:
+        self._r2_cv, self._rmse_cv = run_cross_validation(
+            self._pipeline, X, y, groups,
+        )
 
     def _compute_importances(self, X: pd.DataFrame, y: pd.Series) -> None:
         """Compute feature importances after fitting."""
         scaler = self._pipeline.named_steps["scaler"]
         X_scaled = scaler.transform(X)
 
-        # Store a kmeans summary (50 points) as SHAP background — fast and representative
         if self.use_xgb:
-            try:
-                import shap
-                self._X_train_scaled = shap.kmeans(X_scaled, min(50, len(X_scaled)))
-            except ImportError:
-                self._X_train_scaled = X_scaled[:50]
+            self._X_train_scaled = compute_shap_background(X_scaled)
 
-            from sklearn.inspection import permutation_importance as perm_imp
-            result = perm_imp(
+            result = permutation_importance(
                 self._pipeline, X, y,
                 n_repeats=10, random_state=42, n_jobs=-1,
             )
@@ -179,7 +152,6 @@ class _BaseVeloModel:
         """Predict velo for one pitcher and return top driving features."""
         assert self._pipeline is not None, "Call fit() before predict()."
 
-        # Build as DataFrame to preserve feature names and silence sklearn warning
         values = {c: [float(row.get(c, np.nan)
                        if row.get(c) is not None else np.nan)]
                   for c in self._feature_cols}
@@ -195,18 +167,13 @@ class _BaseVeloModel:
                              for i, name in enumerate(self._feature_cols)]
         else:
             try:
-                import shap
                 model = self._pipeline.named_steps["model"]
-                explainer = shap.TreeExplainer(
-                    model,
-                    data=self._X_train_scaled,
-                    feature_perturbation="interventional",
-                )
-                shap_vals = explainer.shap_values(x_scaled)[0]
+                shap_vals = compute_shap_values(
+                    model, x_scaled, self._X_train_scaled,
+                )[0]
                 contributions = [(name, float(shap_vals[i]))
                                  for i, name in enumerate(self._feature_cols)]
             except Exception:
-                # Fallback: permutation importance magnitude × sign of scaled value
                 contributions = [
                     (name, float(self._feature_importances.get(name, 0.0)
                                  * np.sign(x_scaled[0][i])))
@@ -238,23 +205,17 @@ class BiomechanicsVeloModel(_BaseVeloModel):
 
     def fit(self, df: pd.DataFrame) -> "BiomechanicsVeloModel":
         """Fit on poi_metrics DataFrame (output of load_poi())."""
-        # Use kinematics + energy + GRF as predictors (not moments)
         candidate_cols = KINEMATIC_COLS + ENERGY_COLS + GRF_COLS
 
-        # Keep only columns that exist and have enough non-null values
         self._feature_cols = [
             c for c in candidate_cols
             if c in df.columns and df[c].notna().sum() > 50
         ]
 
-        # Add anthropometric and population features — a 220lb college pitcher
-        # and a 170lb HS pitcher with identical biomechanics throw different velos
         df = df.copy()
-        level_map = {"high_school": 0, "college": 1, "independent": 2,
-                     "milb": 3, "affiliated": 3, "pro": 4, "mlb": 5}
         if "playing_level" in df.columns:
             df["playing_level_enc"] = (
-                df["playing_level"].str.lower().map(level_map).fillna(1)
+                df["playing_level"].str.lower().map(LEVEL_MAP).fillna(1)
             )
         for extra_col in ["session_mass_kg", "session_height_m",
                           "bmi", "playing_level_enc"]:
@@ -262,18 +223,15 @@ class BiomechanicsVeloModel(_BaseVeloModel):
                 if extra_col not in self._feature_cols:
                     self._feature_cols.append(extra_col)
 
-        # session column for GroupKFold — derive from session_pitch if needed
-        if "session" not in df.columns:
-            df["session"] = df["session_pitch"].str.split("_").str[0]
-        session_col = "session"
+        groups = extract_session_groups(df)
 
-        clean = df[self._feature_cols + [TARGET_COL, session_col]].dropna()
+        clean = df[self._feature_cols + [TARGET_COL, "session_pitch"]].dropna()
         X = clean[self._feature_cols]
         y = clean[TARGET_COL]
-        groups = clean[session_col]
+        clean_groups = groups.loc[clean.index]
 
         self._pipeline = self._build_pipeline()
-        self._cross_validate(X, y, groups)
+        self._cross_validate(X, y, clean_groups)
         self._pipeline.fit(X, y)
         self._compute_importances(X, y)
 
@@ -316,9 +274,6 @@ class StrengthVeloModel(_BaseVeloModel):
         Filters to pitch_speed_mph >= 60 to remove non-pitchers and
         youth athletes whose physical development patterns are qualitatively
         different from college/pro pitchers.
-
-        Encodes playing_level as an ordinal feature — it captures the
-        population-level velo ceiling that raw strength metrics miss.
         """
         candidate_cols = HP_STRENGTH_COLS + HP_ROM_COLS
 
@@ -327,15 +282,11 @@ class StrengthVeloModel(_BaseVeloModel):
             if c in df.columns and df[c].notna().sum() > 100
         ]
 
-        # Filter implausible / non-pitcher rows
         clean = df[df[TARGET_COL] >= 60].copy()
 
-        # Encode playing_level as ordinal integer — captures population ceiling
-        level_map = {"High School": 0, "College": 1, "Independent": 2,
-                     "Affiliated": 3, "Pro": 4, "MLB": 5}
         if "playing_level" in clean.columns:
             clean["playing_level_enc"] = (
-                clean["playing_level"].map(level_map).fillna(1)
+                clean["playing_level"].map(LEVEL_MAP_TITLECASE).fillna(1)
             )
             if "playing_level_enc" not in self._feature_cols:
                 self._feature_cols = self._feature_cols + ["playing_level_enc"]
@@ -358,20 +309,19 @@ class StrengthVeloModel(_BaseVeloModel):
         pitcher_row: pd.Series | dict,
         actual_velo: float | None = None,
     ) -> VeloPrediction:
-        # Encode playing_level if the model was trained with it
         if "playing_level_enc" in self._feature_cols:
-            level_map = {"High School": 0, "College": 1, "Independent": 2,
-                         "Affiliated": 3, "Pro": 4, "MLB": 5}
             if isinstance(pitcher_row, dict):
                 pitcher_row = dict(pitcher_row)
                 pitcher_row.setdefault(
                     "playing_level_enc",
-                    level_map.get(str(pitcher_row.get("playing_level", "")), 1)
+                    LEVEL_MAP_TITLECASE.get(
+                        str(pitcher_row.get("playing_level", "")), 1
+                    ),
                 )
             else:
                 pitcher_row = pitcher_row.copy()
                 if "playing_level_enc" not in pitcher_row.index:
-                    pitcher_row["playing_level_enc"] = level_map.get(
+                    pitcher_row["playing_level_enc"] = LEVEL_MAP_TITLECASE.get(
                         str(pitcher_row.get("playing_level", "")), 1
                     )
         pred, drivers = self._predict_single(pitcher_row)
@@ -394,16 +344,15 @@ class StrengthVeloModel(_BaseVeloModel):
 class LaunchpadDiagnostic:
     """The core Launchpad output: both predictions + the gap."""
     actual_velo: float
-    bio_expected: float       # mechanics model prediction
-    strength_expected: float  # strength model prediction
-    bio_gap: float            # bio_expected − actual
-    strength_gap: float       # strength_expected − actual
+    bio_expected: float
+    strength_expected: float
+    bio_gap: float
+    strength_gap: float
     bio_top_drivers: list[tuple[str, float]]
     strength_top_drivers: list[tuple[str, float]]
 
     @property
     def primary_recommendation(self) -> str:
-        """High-level recommendation based on both gaps."""
         if abs(self.bio_gap) < 1.5 and abs(self.strength_gap) < 1.5:
             return "Performing near expectation on both mechanics and strength."
         if self.strength_gap > 2.0 and self.bio_gap < 1.0:
@@ -449,7 +398,7 @@ def run_diagnostic(
 
 if __name__ == "__main__":
     import sys
-    sys.path.insert(0, str(__import__("pathlib").Path(__file__).parents[2]))
+
     from pitchlens.data.poi_metrics import load_combined
 
     root = sys.argv[1] if len(sys.argv) > 1 else "."

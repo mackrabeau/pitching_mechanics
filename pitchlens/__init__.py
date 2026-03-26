@@ -1,8 +1,7 @@
-"""Pitching mechanics — OBP landmark tracking + MuJoCo simulation.
+"""PitchLens — Pitching mechanics analysis system.
 
-Modules:
-
-  site_ik                Site-based damped least-squares IK solver.
-  build_pitcher_fullbody Generate a full-body pitcher MJCF from OBP landmarks.
-  replay_pitcher_fullbody Replay a pitch delivery in MuJoCo (kinematic or physics-tracked).
+Built on the Driveline OpenBiomechanics Project (OBP) dataset.
+Produces a 7-section diagnostic report analyzing velocity potential,
+mechanical efficiency, and injury risk.
 """
+__version__ = "0.1.0"

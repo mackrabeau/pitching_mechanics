@@ -22,31 +22,29 @@ Usage
 """
 from __future__ import annotations
 
-import os
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
-from dataclasses import dataclass, field
 from typing import Optional
 
+import joblib
 import numpy as np
 import pandas as pd
 from scipy.ndimage import gaussian_filter1d
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.model_selection import GroupKFold, cross_val_score
-import joblib
+
+from pitchlens.config import get_figures_dir, get_logs_dir, get_models_dir
+from pitchlens.constants import LEVEL_MAP, TARGET_COL
+from pitchlens.analytics.base_model import (
+    compute_shap_background,
+    compute_shap_values,
+    extract_session_groups,
+    run_cross_validation,
+    shap_feature_importance,
+)
 
 warnings.filterwarnings("ignore", category=UserWarning)
-
-# ── Paths ─────────────────────────────────────────────────────────────────
-
-_REPO_ROOT = Path(__file__).parents[2]
-_LOGS_DIR = _REPO_ROOT / "pitchlens" / "logs"
-_FIGURES_DIR = _LOGS_DIR / "figures"
-_MODELS_DIR = _REPO_ROOT / "pitchlens" / "models"
-_CACHE_PATH = _LOGS_DIR / "full_signal_features.csv"
-
-for _d in [_LOGS_DIR, _FIGURES_DIR, _MODELS_DIR]:
-    _d.mkdir(parents=True, exist_ok=True)
 
 
 # ── Feature lists ─────────────────────────────────────────────────────────
@@ -61,9 +59,9 @@ GRF_FEATURES = [
     "lead_knee_extension_from_fp_to_br",
     "lead_knee_generation_fp_br",
     "lead_hip_generation_fp_br",
-    "peak_grf_z",            # full-signal
-    "grf_impulse_fp_br",     # full-signal
-    "timing_grf_to_torso_ms",  # full-signal (inter-chain timing)
+    "peak_grf_z",
+    "grf_impulse_fp_br",
+    "timing_grf_to_torso_ms",
     "max_cog_velo_x",
     "stride_length",
 ]
@@ -79,14 +77,13 @@ ROT_FEATURES = [
     "max_shoulder_external_rotation",
     "trunk_lateral_tilt_br",
     "timing_peak_torso_to_peak_pelvis_rot_velo",
-    "peak_torso_velo_z",              # full-signal
-    "torso_velo_integral_fp_br",      # full-signal
+    "peak_torso_velo_z",
+    "torso_velo_integral_fp_br",
     "elbow_transfer_fp_br",
     "thorax_distal_transfer_fp_br",
     "shoulder_transfer_fp_br",
 ]
 
-# Backwards induction chain levels (distal → proximal)
 CHAIN_LEVELS = [
     ("pitch_speed_mph",                       "Level 0: Outcome"),
     ("max_shoulder_internal_rotational_velo", "Level 1: Arm"),
@@ -95,8 +92,6 @@ CHAIN_LEVELS = [
     ("peak_grf_z",                            "Level 4: GRF"),
     ("max_cog_velo_x",                        "Level 5: Stride"),
 ]
-
-TARGET_COL = "pitch_speed_mph"
 
 
 # ── Step 1: Full-signal feature engineering ───────────────────────────────
@@ -114,9 +109,11 @@ def compute_full_signal_features(base_path: str | Path) -> pd.DataFrame:
 
     Results are cached to pitchlens/logs/full_signal_features.csv.
     """
-    if _CACHE_PATH.exists():
-        print(f"Loading cached full-signal features from {_CACHE_PATH}")
-        return pd.read_csv(_CACHE_PATH)
+    cache_path = get_logs_dir() / "full_signal_features.csv"
+
+    if cache_path.exists():
+        print(f"Loading cached full-signal features from {cache_path}")
+        return pd.read_csv(cache_path)
 
     import zipfile
 
@@ -133,7 +130,6 @@ def compute_full_signal_features(base_path: str | Path) -> pd.DataFrame:
         with z.open("joint_velos.csv") as f:
             jv_df = pd.read_csv(f)
 
-    # Identify torso velocity column (z-axis rotational, first available match)
     torso_col = None
     for candidate in ["torso_velo_z", "thorax_velo_z", "trunk_velo_z"]:
         if candidate in jv_df.columns:
@@ -206,8 +202,8 @@ def compute_full_signal_features(base_path: str | Path) -> pd.DataFrame:
         })
 
     result = pd.DataFrame(records)
-    result.to_csv(_CACHE_PATH, index=False)
-    print(f"Cached {len(result)} pitches → {_CACHE_PATH}")
+    result.to_csv(cache_path, index=False)
+    print(f"Cached {len(result)} pitches → {cache_path}")
     return result
 
 
@@ -215,8 +211,7 @@ def compute_full_signal_features(base_path: str | Path) -> pd.DataFrame:
 
 def build_research_dataset(base_path: str | Path) -> pd.DataFrame:
     """Merge POI metrics with full-signal features."""
-    import sys
-    sys.path.insert(0, str(_REPO_ROOT))
+    from pitchlens.config import get_project_root
     from pitchlens.data.poi_metrics import load_poi
 
     poi_df = load_poi(str(Path(base_path).parents[2]))
@@ -259,41 +254,20 @@ class _ChainModelBase:
     def _make_estimator(self) -> HistGradientBoostingRegressor:
         return HistGradientBoostingRegressor(max_iter=500, random_state=42)
 
-    def _get_groups(self, df: pd.DataFrame) -> pd.Series:
-        if "session" not in df.columns:
-            df = df.copy()
-            df["session"] = df["session_pitch"].str.split("_").str[0]
-        return df["session"]
-
     def _run_cv(self, X: pd.DataFrame, y: pd.Series, groups: pd.Series) -> None:
-        cv = GroupKFold(n_splits=min(5, groups.nunique()))
-        est = self._make_estimator()
-        r2_scores = cross_val_score(est, X, y, cv=cv, groups=groups,
-                                    scoring="r2", n_jobs=-1)
-        rmse_scores = cross_val_score(est, X, y, cv=cv, groups=groups,
-                                      scoring="neg_root_mean_squared_error",
-                                      n_jobs=-1)
-        self._r2_cv = float(np.mean(r2_scores))
-        self._rmse_cv = float(-np.mean(rmse_scores))
+        self._r2_cv, self._rmse_cv = run_cross_validation(
+            self._make_estimator(), X, y, groups,
+        )
 
     def _fit_shap(self, X: pd.DataFrame) -> None:
         try:
-            import shap
             X_arr = X.values.astype(float)
-            bg = shap.kmeans(X_arr, min(50, len(X_arr)))
-            self._X_background = bg
-            explainer = shap.TreeExplainer(
-                self._model,
-                data=bg,
-                feature_perturbation="interventional",
+            self._X_background = compute_shap_background(X_arr)
+            self._shap_values = compute_shap_values(
+                self._model, X_arr, self._X_background,
             )
-            sv = explainer.shap_values(X_arr)
-            self._shap_values = sv
-            mean_abs = np.abs(sv).mean(axis=0)
-            self.feature_importance_df = (
-                pd.DataFrame({"feature": self._feature_cols, "importance": mean_abs})
-                .sort_values("importance", ascending=False)
-                .reset_index(drop=True)
+            self.feature_importance_df = shap_feature_importance(
+                self._shap_values, self._feature_cols,
             )
         except Exception as e:
             print(f"  SHAP failed ({e}), falling back to zero importances")
@@ -304,7 +278,7 @@ class _ChainModelBase:
 
     def fit(self, df: pd.DataFrame, feature_cols: list[str]) -> "ModelResult":
         self._feature_cols = [f for f in feature_cols if f in df.columns]
-        groups = self._get_groups(df)
+        groups = extract_session_groups(df)
         clean_mask = df[TARGET_COL].notna()
         df_clean = df[clean_mask].copy()
         groups_clean = groups[clean_mask]
@@ -335,7 +309,7 @@ class _ChainModelBase:
     def save(self, path: Path | str | None = None) -> None:
         if self._model is None:
             raise RuntimeError("Model not fitted yet.")
-        save_path = path or (_MODELS_DIR / f"{self.MODEL_NAME}.joblib")
+        save_path = path or (get_models_dir() / f"{self.MODEL_NAME}.joblib")
         joblib.dump(self, save_path)
         print(f"  Saved → {save_path}")
 
@@ -353,11 +327,9 @@ class BaselineVeloModel(_ChainModelBase):
     def fit(self, df: pd.DataFrame) -> ModelResult:
         from pitchlens.data.poi_metrics import KINEMATIC_COLS, ENERGY_COLS, GRF_COLS
         df = df.copy()
-        level_map = {"high_school": 0, "college": 1, "independent": 2,
-                     "milb": 3, "affiliated": 3, "pro": 4, "mlb": 5}
         if "playing_level" in df.columns:
             df["playing_level_enc"] = (
-                df["playing_level"].str.lower().map(level_map).fillna(1)
+                df["playing_level"].str.lower().map(LEVEL_MAP).fillna(1)
             )
         candidate = (
             KINEMATIC_COLS + ENERGY_COLS + GRF_COLS
@@ -539,12 +511,7 @@ def _save_chain_breakdown(df: pd.DataFrame, out_dir: Path) -> None:
 
 
 def evaluate_all_models(base_path: str | Path) -> None:
-    """Fit all models, print comparison table, save SHAP plots.
-
-    Parameters
-    ----------
-    base_path : path to openbiomechanics/baseball_pitching/data/
-    """
+    """Fit all models, print comparison table, save SHAP plots."""
     print("\n" + "=" * 70)
     print("PitchLens — Two-Chain Causal Decomposition Model Evaluation")
     print("=" * 70)
@@ -596,18 +563,19 @@ def evaluate_all_models(base_path: str | Path) -> None:
     else:
         print(f"  → No additive gain — chains share predictive variance")
 
+    figures_dir = get_figures_dir()
     print("\nSaving SHAP plots...")
     for r in results:
-        _save_shap_plot(r, _FIGURES_DIR)
+        _save_shap_plot(r, figures_dir)
 
-    _save_chain_breakdown(df, _FIGURES_DIR)
+    _save_chain_breakdown(df, figures_dir)
 
     table_df = pd.DataFrame([
         {"model": r.model_name, "cv_r2": r.r2_cv, "rmse": r.rmse_cv,
          "n_features": r.n_features, "n_samples": r.n_samples}
         for r in results
     ])
-    table_path = _LOGS_DIR / "model_comparison.csv"
+    table_path = get_logs_dir() / "model_comparison.csv"
     table_df.to_csv(table_path, index=False)
     print(f"\nComparison table saved → {table_path}")
     print("Done.\n")

@@ -1,0 +1,115 @@
+/* PitchLens dashboard styles */
+
+/* Clean metric cards */
+.pl-card {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 10px;
+  padding: 18px 22px;
+  margin-bottom: 10px;
+}
+.pl-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #868e96;
+  margin-bottom: 4px;
+}
+.pl-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #212529;
+  line-height: 1.1;
+}
+.pl-sub {
+  font-size: 13px;
+  color: #6c757d;
+  margin-top: 3px;
+}
+
+/* Gap pill */
+.gap-positive {
+  display: inline-block;
+  background: #fff3cd;
+  color: #664d03;
+  border-radius: 20px;
+  padding: 3px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.gap-negative {
+  display: inline-block;
+  background: #d1e7dd;
+  color: #0a3622;
+  border-radius: 20px;
+  padding: 3px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.gap-neutral {
+  display: inline-block;
+  background: #e2e3e5;
+  color: #41464b;
+  border-radius: 20px;
+  padding: 3px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Comp cards */
+.comp-card {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-left: 4px solid #339af0;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 8px;
+}
+.comp-sim {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #339af0;
+}
+.comp-velo {
+  font-size: 22px;
+  font-weight: 700;
+  color: #212529;
+}
+.comp-meta {
+  font-size: 12px;
+  color: #868e96;
+}
+
+/* Section headers */
+.pl-section {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #495057;
+  border-bottom: 2px solid #e9ecef;
+  padding-bottom: 6px;
+  margin: 24px 0 16px;
+}
+
+/* Improvement table rows */
+.imp-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f3f5;
+  font-size: 13px;
+}
+.imp-cat {
+  font-size: 11px;
+  background: #e7f5ff;
+  color: #1971c2;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-weight: 600;
+  margin-right: 8px;
+}
