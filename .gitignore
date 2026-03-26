@@ -19,14 +19,12 @@ __pycache__/
 # logs for mujoco
 MUJOCO_LOG.TXT
 
-# rl data
-runs/
-
 # model artifacts
 *.c3d
 pitchlens/models/*.xml
 pitchlens/logs/*.csv
-runs/
+models/
+logs/
 videos/
 
 # Streamlit
