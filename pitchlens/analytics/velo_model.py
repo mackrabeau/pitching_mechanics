@@ -71,6 +71,7 @@ class VeloPrediction:
     model_type: str                  # "biomechanics" or "strength"
     r2_cv: float                     # cross-validated R² of the model
     rmse_cv: float                   # cross-validated RMSE (mph)
+    model_version: str = ""          # audit trail: "Bio v1 · 78f · R²=0.55"
 
     @property
     def gap_interpretation(self) -> str:
@@ -102,6 +103,7 @@ class _BaseVeloModel:
         self._rmse_cv: float = float("nan")
         self._feature_importances: pd.Series | None = None
         self._X_train_scaled: np.ndarray | None = None
+        self._train_medians: dict[str, float] | None = None
 
     def _build_pipeline(self) -> Pipeline:
         if self.use_xgb:
@@ -128,6 +130,8 @@ class _BaseVeloModel:
 
     def _compute_importances(self, X: pd.DataFrame, y: pd.Series) -> None:
         """Compute feature importances after fitting."""
+        self._train_medians = {col: float(X[col].median()) for col in X.columns}
+
         scaler = self._pipeline.named_steps["scaler"]
         X_scaled = scaler.transform(X)
 
@@ -148,8 +152,14 @@ class _BaseVeloModel:
                 np.abs(coefs), index=self._feature_cols
             ).sort_values(ascending=False)
 
-    def _predict_single(self, row: pd.Series | dict) -> tuple[float, list[tuple[str, float]]]:
-        """Predict velo for one pitcher and return top driving features."""
+    def _compute_contributions(self, row: pd.Series | dict) -> tuple[float, dict[str, float]]:
+        """Predict velo and return SHAP contribution for every feature.
+
+        Missing (NaN) feature values are imputed with the training median
+        before SHAP computation so that unmeasured features receive near-zero
+        attribution rather than NaN.  The prediction itself still uses the
+        raw input (HistGradientBoosting handles NaN natively).
+        """
         assert self._pipeline is not None, "Call fit() before predict()."
 
         values = {c: [float(row.get(c, np.nan)
@@ -159,29 +169,49 @@ class _BaseVeloModel:
         pred = float(self._pipeline.predict(x_df)[0])
 
         scaler = self._pipeline.named_steps["scaler"]
-        x_scaled = scaler.transform(x_df)
+
+        x_for_shap = x_df.copy()
+        if self._train_medians is not None:
+            for col in x_for_shap.columns:
+                if x_for_shap[col].isna().any() and col in self._train_medians:
+                    x_for_shap[col] = x_for_shap[col].fillna(self._train_medians[col])
+        x_scaled = scaler.transform(x_for_shap)
 
         if not self.use_xgb:
             coefs = self._pipeline.named_steps["model"].coef_
-            contributions = [(name, float(coefs[i] * x_scaled[0][i]))
-                             for i, name in enumerate(self._feature_cols)]
+            contribs = {name: float(coefs[i] * x_scaled[0][i])
+                        for i, name in enumerate(self._feature_cols)}
         else:
             try:
                 model = self._pipeline.named_steps["model"]
                 shap_vals = compute_shap_values(
                     model, x_scaled, self._X_train_scaled,
                 )[0]
-                contributions = [(name, float(shap_vals[i]))
-                                 for i, name in enumerate(self._feature_cols)]
+                contribs = {name: float(shap_vals[i])
+                            for i, name in enumerate(self._feature_cols)}
             except Exception:
-                contributions = [
-                    (name, float(self._feature_importances.get(name, 0.0)
-                                 * np.sign(x_scaled[0][i])))
+                contribs = {
+                    name: float(self._feature_importances.get(name, 0.0)
+                                * np.sign(x_scaled[0][i]))
                     for i, name in enumerate(self._feature_cols)
-                ]
+                }
 
-        top = sorted(contributions, key=lambda t: abs(t[1]), reverse=True)[:8]
+        return pred, contribs
+
+    def _predict_single(self, row: pd.Series | dict) -> tuple[float, list[tuple[str, float]]]:
+        """Predict velo for one pitcher and return top driving features."""
+        pred, contribs = self._compute_contributions(row)
+        top = sorted(contribs.items(), key=lambda t: abs(t[1]), reverse=True)[:8]
         return pred, top
+
+    def feature_contributions(self, row: pd.Series | dict) -> tuple[float, dict[str, float]]:
+        """Return predicted velocity and SHAP contribution for every feature.
+
+        Unlike predict_with_explanation (which returns only the top 8 drivers),
+        this returns all feature contributions — useful for aggregating by
+        kinetic chain segment or other groupings.
+        """
+        return self._compute_contributions(row)
 
     @property
     def feature_importances(self) -> pd.Series:
@@ -191,6 +221,11 @@ class _BaseVeloModel:
     @property
     def cv_summary(self) -> str:
         return f"CV R²={self._r2_cv:.3f}  RMSE={self._rmse_cv:.2f} mph"
+
+    @property
+    def model_version(self) -> str:
+        n = len(self._feature_cols)
+        return f"{n}f · R²={self._r2_cv:.2f}"
 
 
 # ── Biomechanics model ────────────────────────────────────────────────────
@@ -255,6 +290,7 @@ class BiomechanicsVeloModel(_BaseVeloModel):
             model_type="biomechanics",
             r2_cv=self._r2_cv,
             rmse_cv=self._rmse_cv,
+            model_version=f"Bio v1 · {self.model_version}",
         )
 
 
@@ -335,6 +371,7 @@ class StrengthVeloModel(_BaseVeloModel):
             model_type="strength",
             r2_cv=self._r2_cv,
             rmse_cv=self._rmse_cv,
+            model_version=f"Str v1 · {self.model_version}",
         )
 
 

@@ -95,6 +95,65 @@
   margin: 24px 0 16px;
 }
 
+/* Coaching language cue rows */
+.cue-row {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 10px;
+}
+.cue-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.cue-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #212529;
+  font-style: italic;
+}
+.cue-verdict {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.cue-bar-track {
+  background: #e9ecef;
+  border-radius: 4px;
+  height: 8px;
+  width: 100%;
+  margin-bottom: 6px;
+}
+.cue-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+.cue-details {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #868e96;
+  margin-bottom: 4px;
+}
+.cue-metric {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+}
+.cue-pct {
+  font-weight: 600;
+  color: #495057;
+}
+.cue-desc {
+  font-size: 12px;
+  color: #6c757d;
+  line-height: 1.5;
+}
+
 /* Improvement table rows */
 .imp-row {
   display: flex;

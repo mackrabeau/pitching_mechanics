@@ -53,6 +53,7 @@ class MechanicsScores:
     injury_flags: dict[str, str]   # joint → risk level
     raw_composites: dict[str, float]   # pre-percentile weighted averages
     component_percentiles: dict[str, dict[str, float]]  # per-variable percentiles
+    model_version: str = ""    # audit trail: "Scorer v1 · 28 CDFs"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -201,6 +202,7 @@ class MechanicsScorer:
             injury_flags=self._injury_flags(pitcher_row),
             raw_composites=scores_raw,
             component_percentiles=per_variable,
+            model_version=f"Scorer v1 · {len(self._cdfs)} CDFs",
         )
 
     def score_cohort(self, df: pd.DataFrame) -> pd.DataFrame:

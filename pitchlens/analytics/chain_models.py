@@ -235,6 +235,7 @@ class ModelResult:
     feature_importance_df: pd.DataFrame
     shap_values: Optional[np.ndarray] = None
     shap_feature_names: Optional[list] = None
+    model_version: str = ""
 
 
 class _ChainModelBase:
@@ -304,6 +305,7 @@ class _ChainModelBase:
             feature_importance_df=self.feature_importance_df,
             shap_values=self._shap_values,
             shap_feature_names=self._feature_cols,
+            model_version=f"{self.MODEL_NAME} v1 · {len(self._feature_cols)}f · R²={self._r2_cv:.2f}",
         )
 
     def save(self, path: Path | str | None = None) -> None:

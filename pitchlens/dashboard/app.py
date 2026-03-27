@@ -11,6 +11,7 @@ Sections:
     5. Kinematic Profile    — hip-shoulder separation, torso velo
     6. Kinetic Chain        — energy per segment vs cohort average
     7. Joint Moments        — per-frame moments from OBP inverse dynamics
+    8. Coaching Language    — 9 common coaching cues mapped to measured metrics
 """
 from __future__ import annotations
 
@@ -31,6 +32,7 @@ from pitchlens.dashboard.sections import (
     kinematic_profile,
     kinetic_chain,
     joint_moments,
+    coaching_language,
 )
 
 # ── Page config ───────────────────────────────────────────────────────────
@@ -100,11 +102,20 @@ with st.sidebar:
     selected_session = label_to_session[selected_label]
 
     st.divider()
+    st.markdown("##### Model versions")
+    st.markdown(
+        f"<div style='font-size:11px;color:#adb5bd;line-height:1.7'>"
+        f"Bio: {bio_model.model_version}<br>"
+        f"Str: {strength_model.model_version}<br>"
+        f"Scorer: {len(scorer._cdfs)} CDFs"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    st.divider()
     st.markdown(
         "<div style='font-size:11px;color:#adb5bd'>"
         "Data: Driveline OpenBiomechanics Project<br>"
-        "Models: HistGradientBoosting + SHAP<br>"
-        "CV R² bio=0.55 · strength=0.34"
+        "Models: HistGradientBoosting + SHAP"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -152,5 +163,6 @@ scores = mechanic_scores.render(pitcher, scorer, selected_session)
 injury_risk.render(pitcher, scores)
 peer_comps.render(pitcher, matcher, selected_session)
 kinematic_profile.render(pitcher, poi_df, selected_session)
-kinetic_chain.render(pitcher, poi_df)
+kinetic_chain.render(pitcher, poi_df, bio_model)
 joint_moments.render(pitcher, poi_df, selected_session)
+coaching_language.render(pitcher, scorer)

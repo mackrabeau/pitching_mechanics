@@ -220,6 +220,121 @@ def make_kinematic_scatter(
     return fig
 
 
+def make_chain_flow(
+    link_names: list[str],
+    link_mph: list[float],
+    link_pctiles: list[float | None],
+    actual_velo: float,
+) -> go.Figure:
+    """Sequential node-link chain with percentile + SHAP velocity cost."""
+    n_links = len(link_names)
+    n_total = n_links + 1
+
+    xs = list(range(n_total))
+    ys = [0.0] * n_total
+
+    def _pct_color(pct):
+        if pct is None:
+            return "#adb5bd"
+        if pct >= 65:
+            return "#2f9e44"
+        if pct >= 35:
+            return "#f59f00"
+        return "#e03131"
+
+    node_colors = [_pct_color(p) for p in link_pctiles] + ["#339af0"]
+
+    hover_texts = []
+    for i in range(n_links):
+        parts = [f"<b>{link_names[i].replace(chr(10), ' ')}</b>"]
+        parts.append(f"SHAP contribution: {link_mph[i]:+.2f} mph")
+        if link_pctiles[i] is not None:
+            parts.append(f"Key feature: {link_pctiles[i]:.0f}th percentile")
+        hover_texts.append("<br>".join(parts))
+    hover_texts.append(f"<b>Actual velocity</b><br>{actual_velo:.1f} mph")
+
+    fig = go.Figure()
+
+    for i in range(n_total - 1):
+        fig.add_shape(
+            type="line",
+            x0=xs[i] + 0.22, y0=0,
+            x1=xs[i + 1] - 0.22, y1=0,
+            line=dict(color="#dee2e6", width=2.5),
+            layer="below",
+        )
+
+    mid_xs = [(xs[i] + xs[i + 1]) / 2 + 0.1 for i in range(n_total - 1)]
+    fig.add_trace(go.Scatter(
+        x=mid_xs, y=[0] * len(mid_xs),
+        mode="markers",
+        marker=dict(symbol="triangle-right", size=9, color="#dee2e6"),
+        showlegend=False, hoverinfo="skip",
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=xs, y=ys,
+        mode="markers",
+        marker=dict(
+            size=55, color=node_colors,
+            line=dict(color="white", width=2.5),
+            opacity=0.92,
+        ),
+        showlegend=False,
+        text=hover_texts,
+        hovertemplate="%{text}<extra></extra>",
+    ))
+
+    all_names = link_names + ["Ball"]
+    for i in range(n_total):
+        fig.add_annotation(
+            x=xs[i], y=0.42,
+            text=f"<b>{all_names[i]}</b>",
+            showarrow=False,
+            font=dict(size=11, color="#495057"),
+        )
+
+        if i < n_links:
+            pct = link_pctiles[i]
+            pct_label = f"{pct:.0f}%" if pct is not None else "\u2014"
+            fig.add_annotation(
+                x=xs[i], y=0.05,
+                text=f"<b>{pct_label}</b>",
+                showarrow=False,
+                font=dict(size=15, color="white"),
+            )
+            mph = link_mph[i]
+            sign = "+" if mph >= 0 else ""
+            fig.add_annotation(
+                x=xs[i], y=-0.42,
+                text=f"{sign}{mph:.1f} mph",
+                showarrow=False,
+                font=dict(size=10, color="#868e96"),
+            )
+        else:
+            fig.add_annotation(
+                x=xs[i], y=0.02,
+                text=f"<b>{actual_velo:.0f}</b>",
+                showarrow=False,
+                font=dict(size=16, color="white"),
+            )
+            fig.add_annotation(
+                x=xs[i], y=-0.12,
+                text="mph",
+                showarrow=False,
+                font=dict(size=10, color="rgba(255,255,255,0.8)"),
+            )
+
+    fig.update_layout(
+        height=220,
+        margin=dict(l=10, r=10, t=30, b=30),
+        xaxis=dict(visible=False, range=[-0.5, n_total - 0.5]),
+        yaxis=dict(visible=False, range=[-0.6, 0.6]),
+        plot_bgcolor=_BG, paper_bgcolor=_BG, font=_FONT,
+    )
+    return fig
+
+
 def make_chain_bar(
     segment_names: list[str],
     pitcher_xfer: list[float | None],

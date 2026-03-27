@@ -36,7 +36,7 @@ def render(pitcher: pd.Series, bio_model, actual_velo: float) -> None:
             f'<div class="pl-label">Expected (mechanics)</div>'
             f'<div class="pl-value">{bio_expected:.1f} '
             f'<span style="font-size:16px;font-weight:400">mph</span></div>'
-            f'<div class="pl-sub">Bio model \u00b7 R\u00b2=0.55 \u00b7 RMSE=3.1 mph</div>'
+            f'<div class="pl-sub">{bio_result.model_version}</div>'
             f'</div>',
             unsafe_allow_html=True,
         )

@@ -7,6 +7,7 @@ from pitchlens.dashboard.sections import (
     kinematic_profile,
     kinetic_chain,
     joint_moments,
+    coaching_language,
 )
 
 __all__ = [
@@ -17,4 +18,5 @@ __all__ = [
     "kinematic_profile",
     "kinetic_chain",
     "joint_moments",
+    "coaching_language",
 ]
