@@ -322,7 +322,7 @@ class StrengthVeloModel(_BaseVeloModel):
 
         if "playing_level" in clean.columns:
             clean["playing_level_enc"] = (
-                clean["playing_level"].map(LEVEL_MAP_TITLECASE).fillna(1)
+                clean["playing_level"].map(LEVEL_MAP_TITLECASE).fillna(1).astype(float)
             )
             if "playing_level_enc" not in self._feature_cols:
                 self._feature_cols = self._feature_cols + ["playing_level_enc"]
