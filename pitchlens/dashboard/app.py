@@ -234,7 +234,7 @@ with tab_delivery:
                 xaxis_title="Forward (m)", yaxis_title="Height (m)",
                 height=320, margin=dict(t=40, b=30),
             )
-            st.plotly_chart(fig_side, use_container_width=True)
+            st.plotly_chart(fig_side, width='stretch')
 
         with col_r:
             fig_hvel = go.Figure()
@@ -266,7 +266,7 @@ with tab_delivery:
                 xaxis_title="Time (s)", yaxis_title="v_x (m/s)",
                 height=320, margin=dict(t=40, b=30),
             )
-            st.plotly_chart(fig_hvel, use_container_width=True)
+            st.plotly_chart(fig_hvel, width='stretch')
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -340,7 +340,7 @@ with tab_trends:
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             height=420, margin=dict(t=60, b=30),
         )
-        st.plotly_chart(fig_trend, use_container_width=True)
+        st.plotly_chart(fig_trend, width='stretch')
 
         # Correlation table: each feature vs velocity for THIS pitcher
         st.markdown("**Within-session correlations with velocity**")
@@ -355,7 +355,7 @@ with tab_trends:
                     "n": len(valid),
                 })
         if corr_rows:
-            st.dataframe(pd.DataFrame(corr_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(corr_rows), width='stretch', hide_index=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -412,7 +412,7 @@ with tab_model:
             margin=dict(t=50, l=20, r=80, b=30),
             xaxis=dict(zeroline=True, zerolinecolor="#bbb"),
         )
-        st.plotly_chart(fig_lev, use_container_width=True)
+        st.plotly_chart(fig_lev, width='stretch')
 
         # Leverage table with direction
         display_lev = lev[["label", "mean", "std", "leverage_mph_per_sd", "direction"]].copy()
@@ -422,7 +422,7 @@ with tab_model:
         display_lev["Leverage (mph/SD)"] = display_lev["Leverage (mph/SD)"].apply(
             lambda x: f"{x:+.2f}"
         )
-        st.dataframe(display_lev, use_container_width=True, hide_index=True)
+        st.dataframe(display_lev, width='stretch', hide_index=True)
 
         st.divider()
 
@@ -470,7 +470,7 @@ with tab_model:
                 "Change (SD)": f"{delta_feat / model.feature_stds[feat]:+.1f} SD",
                 "Δ mph": f"{contrib:+.2f}",
             })
-        st.dataframe(pd.DataFrame(contrib_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(contrib_rows), width='stretch', hide_index=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -523,7 +523,7 @@ with tab_bench:
             height=320 + 35 * len(bench_df),
             margin=dict(t=50, l=20, r=100, b=30),
         )
-        st.plotly_chart(fig_bench, use_container_width=True)
+        st.plotly_chart(fig_bench, width='stretch')
 
         # Detail table
         display_bench = bench_df[["label", "your_mean", "pop_mean", "pop_std", "percentile"]].copy()
@@ -531,7 +531,7 @@ with tab_bench:
         for col in ["Your mean", "OBP mean", "OBP SD"]:
             display_bench[col] = display_bench[col].round(3)
         display_bench["Percentile"] = display_bench["Percentile"].apply(lambda x: f"{x:.0f}th")
-        st.dataframe(display_bench, use_container_width=True, hide_index=True)
+        st.dataframe(display_bench, width='stretch', hide_index=True)
 
         # Interpretation
         top_feat = bench_df.sort_values("percentile", ascending=False).iloc[0]
