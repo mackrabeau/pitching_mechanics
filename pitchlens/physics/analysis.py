@@ -254,7 +254,7 @@ def main(root_str: str) -> None:
     print("─" * 62)
     stability = within_pitcher_stability(df)
     print(f"  {'Signal':<35} {'CV% within':>11}  {'SNR':>6}  {'n_sess':>7}")
-    print(f"  {'-'*35}  {'-----------}  {'------'}  {'-------'}")
+    print(f"  {'-'*35}  {'-----------'}  {'------'}  {'-------'}")
     for _, row in stability.iterrows():
         print(f"  {row['signal']:<35} {row['within_cv_pct']:>10.1f}%  "
               f"{row['snr']:>6.2f}  {int(row['n_sessions']):>7}")
