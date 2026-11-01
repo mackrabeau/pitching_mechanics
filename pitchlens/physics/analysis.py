@@ -209,6 +209,129 @@ def within_pitcher_stability(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("within_cv_pct")
 
 
+# ── 4. Decel timing test ─────────────────────────────────────────────────
+
+def decel_timing_test(df: pd.DataFrame) -> dict[str, float]:
+    """Does the TIMING of peak decel (relative to FP) predict velocity?
+
+    peak_decel comes from the full-pitch window in the cached features,
+    but FP time is available. We compute the lag: peak_decel_time - FP_time
+    and test whether pitchers who decelerate EARLIER post-FP throw harder.
+
+    Also checks rate of decel onset: Δvx / Δt from FP to peak decel.
+    """
+    needed = ["mom_peak_decel_time", "mom_peak_decel_x", TARGET]
+    fp_col = "com_x_fp"  # FP time proxy: com state time at FP
+
+    valid = df[needed].dropna()
+
+    # Direct: does peak_decel_x magnitude predict velo?
+    r_mag, p_mag = stats.pearsonr(valid["mom_peak_decel_x"], valid[TARGET])
+
+    # Timing: fp_time not directly stored but peak_decel_time is absolute
+    # Compute decel onset lag = peak_decel_time relative to earliest event
+    # (Use raw time column if available, else skip)
+    timing_r = float("nan")
+    if "mom_peak_decel_time" in df.columns:
+        t_valid = df[["mom_peak_decel_time", TARGET]].dropna()
+        timing_r, _ = stats.pearsonr(t_valid["mom_peak_decel_time"], t_valid[TARGET])
+
+    return {
+        "r_decel_magnitude_vs_velo": r_mag,
+        "p_decel_magnitude": p_mag,
+        "r_decel_timing_vs_velo": timing_r,
+        "n": len(valid),
+    }
+
+
+# ── 5. Mediation: does knee extension mediate decel → velo? ───────────────
+
+def knee_mediation_test(df: pd.DataFrame) -> dict[str, float]:
+    """Baron-Kenny style mediation: lead knee extension rate as mediator.
+
+    Path diagram:
+        peak_decel_x → pitch_speed_mph        (direct: c)
+        peak_decel_x → lead_knee_ext_velo → pitch_speed_mph  (indirect: a×b)
+
+    If a×b ≈ c, decel is essentially a proxy for knee extension rate.
+    If c >> a×b, decel captures something beyond knee extension.
+    """
+    knee_col = "lead_knee_extension_angular_velo_br"
+    decel_col = "mom_peak_decel_x"
+    cols = [decel_col, knee_col, TARGET]
+    valid = df[cols].dropna()
+
+    if len(valid) < 30 or knee_col not in df.columns:
+        return {"note": f"{knee_col} not available or too few rows"}
+
+    from sklearn.linear_model import LinearRegression
+    from sklearn.preprocessing import StandardScaler
+
+    sc = StandardScaler()
+
+    def r2_ols(X_cols, y_col):
+        data = valid[X_cols + [y_col]].dropna()
+        Xs = sc.fit_transform(data[X_cols])
+        return LinearRegression().fit(Xs, data[y_col]).score(Xs, data[y_col])
+
+    # Path a: decel → knee
+    a, _ = stats.pearsonr(valid[decel_col], valid[knee_col])
+    # Path b: knee → velo (controlling for decel)
+    r2_both = r2_ols([decel_col, knee_col], TARGET)
+    r2_decel_only = r2_ols([decel_col], TARGET)
+    b_unique = r2_both - r2_decel_only   # unique contribution of knee beyond decel
+    # Path c: total decel → velo
+    c, _ = stats.pearsonr(valid[decel_col], valid[TARGET])
+    # Indirect: approximate a × b_raw
+    b_raw, _ = stats.pearsonr(valid[knee_col], valid[TARGET])
+
+    return {
+        "path_a_decel_to_knee_r":    a,
+        "path_b_knee_to_velo_r":     b_raw,
+        "path_c_direct_decel_velo_r": c,
+        "indirect_approx_axb":       a * b_raw,
+        "r2_decel_alone":            r2_decel_only,
+        "r2_decel_plus_knee":        r2_both,
+        "unique_r2_of_knee":         b_unique,
+        "n": len(valid),
+    }
+
+
+# ── 6. CoM shape: is decel driven by CoM trajectory geometry? ────────────
+
+def com_shape_test(df: pd.DataFrame) -> pd.DataFrame:
+    """Correlate peak_decel_x with CoM trajectory shape features.
+
+    Tests whether pitchers who arrive at FP with:
+      - Lower CoM (com_z_fp)
+      - Higher horizontal velocity (com_vx_fp)
+      - More vertical drop from PKH to FP (com_vz_fp)
+    produce a sharper deceleration — suggesting the braking is driven
+    by how the body arrives at FP, not just the lead leg's reaction.
+    """
+    shape_cols = [
+        "com_vx_fp",      # horizontal CoM velocity at FP
+        "com_vz_fp",      # vertical CoM velocity at FP
+        "com_z_fp",       # CoM height at FP
+        "com_speed_fp",   # full CoM speed at FP (from batch features)
+        "mom_peak_hvel",  # peak horizontal velocity (pre-FP)
+        "stride_length",  # how long the stride is
+    ]
+    decel_col = "mom_peak_decel_x"
+    rows = []
+    for col in shape_cols:
+        if col not in df.columns:
+            continue
+        valid = df[[col, decel_col, TARGET]].dropna()
+        if len(valid) < 30:
+            continue
+        r_d, _ = stats.pearsonr(valid[col], valid[decel_col])
+        r_v, _ = stats.pearsonr(valid[col], valid[TARGET])
+        rows.append({"feature": col, "r_with_decel": r_d, "r_with_velo": r_v, "n": len(valid)})
+
+    return pd.DataFrame(rows).sort_values("r_with_decel", key=abs, ascending=False)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────
 
 def main(root_str: str) -> None:
@@ -258,6 +381,52 @@ def main(root_str: str) -> None:
     for _, row in stability.iterrows():
         print(f"  {row['signal']:<35} {row['within_cv_pct']:>10.1f}%  "
               f"{row['snr']:>6.2f}  {int(row['n_sessions']):>7}")
+
+    # ── 4. Decel timing ────────────────────────────────────────────────────
+    print("\n─" * 62)
+    print("\n4. DECEL TIMING — does when peak decel occurs predict velo?")
+    print("─" * 62)
+    timing = decel_timing_test(df)
+    print(f"  r(decel magnitude → velo):  {timing['r_decel_magnitude_vs_velo']:.3f}  "
+          f"  p={timing['p_decel_magnitude']:.4f}  n={timing['n']}")
+    print(f"  r(decel timing → velo):     {timing['r_decel_timing_vs_velo']:.3f}")
+
+    # ── 5. Knee mediation ─────────────────────────────────────────────────
+    print("\n─" * 62)
+    print("\n5. KNEE MEDIATION — is decel a proxy for knee extension rate?")
+    print("─" * 62)
+    med = knee_mediation_test(df)
+    if "note" in med:
+        print(f"  Skipped: {med['note']}")
+    else:
+        print(f"  Path a  (decel → knee r):      {med['path_a_decel_to_knee_r']:.3f}")
+        print(f"  Path b  (knee → velo r):        {med['path_b_knee_to_velo_r']:.3f}")
+        print(f"  Path c  (decel → velo r):       {med['path_c_direct_decel_velo_r']:.3f}")
+        print(f"  Indirect a×b:                  {med['indirect_approx_axb']:.3f}")
+        print(f"  R²(decel alone):               {med['r2_decel_alone']:.3f}")
+        print(f"  R²(decel + knee):              {med['r2_decel_plus_knee']:.3f}")
+        print(f"  Unique R² of knee beyond decel: {med['unique_r2_of_knee']:+.3f}")
+        if abs(med["path_a_decel_to_knee_r"]) > 0.4 and med["unique_r2_of_knee"] < 0.01:
+            print("  → decel IS largely a proxy for lead knee extension rate")
+        elif med["unique_r2_of_knee"] > 0.02:
+            print("  → decel and knee extension are INDEPENDENT signals")
+        else:
+            print("  → partial overlap — decel and knee share some but not all variance")
+
+    # ── 6. CoM shape ──────────────────────────────────────────────────────
+    print("\n─" * 62)
+    print("\n6. CoM SHAPE — does trajectory geometry drive decel?")
+    print("   (does arriving at FP faster/lower cause sharper braking?)")
+    print("─" * 62)
+    shape = com_shape_test(df)
+    if shape.empty:
+        print("  No CoM shape features found — run run_experiments first.")
+    else:
+        print(f"  {'Feature':<28} {'r_decel':>8}  {'r_velo':>8}  {'n':>6}")
+        print(f"  {'-'*28}  {'--------'}  {'--------'}  {'------'}")
+        for _, row in shape.iterrows():
+            print(f"  {row['feature']:<28} {row['r_with_decel']:>8.3f}  "
+                  f"{row['r_with_velo']:>8.3f}  {int(row['n']):>6}")
 
     # Save figures
     _plot_decel_drivers(df, drivers)
